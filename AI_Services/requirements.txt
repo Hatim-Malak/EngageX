@@ -1,0 +1,17 @@
+langchain
+langchain-classic
+langchain-community
+langchain-groq
+langgraph
+slowapi
+uvicorn
+websockets
+python-dotenv
+langchain-pinecone
+pinecone-client
+langchain-huggingface
+sentence-transformers
+groq
+youtube-transcript-api==0.6.3
+yt-dlp
+langchain_text_splitters
