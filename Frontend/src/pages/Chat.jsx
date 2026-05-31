@@ -7,6 +7,8 @@ import EngagementComparison from "../components/chat/EngagementComparison";
 import ChatPanel from "../components/chat/ChatPanel";
 import LoadingSpinner from "../components/shared/LoadingSpinner";
 
+import { ChevronDown } from "lucide-react";
+
 export default function Chat() {
   const navigate = useNavigate();
 
@@ -82,41 +84,51 @@ export default function Chat() {
 
       {/* Main content: three-panel layout */}
       <div className="flex-1 w-full flex flex-col md:flex-row min-h-0 p-4 gap-5 relative z-10">
-        {/* Left panel: Video cards — min-h-0 lets it shrink, overflow-y-auto lets it scroll */}
-        <div className="flex md:flex-col gap-5 md:w-72 lg:w-80 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pr-2 md:shrink-0">
-          {/* Video A card */}
-          <div className="min-w-[260px] md:min-w-0 shrink-0">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-bold text-brand-secondary uppercase tracking-widest">
-                Video A
-              </span>
-              {engagement?.winner === "A" && (
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(250,204,21,0.4)]">
-                  Winner
+        
+        {/* Left panel Container */}
+        <div className="relative flex md:flex-col min-h-0 md:w-72 lg:w-80 shrink-0">
+          
+          {/* Scrollable area */}
+          <div className="flex md:flex-col gap-5 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar pb-10 pr-2">
+            {/* Video A card */}
+            <div className="min-w-[260px] md:min-w-0 shrink-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-bold text-brand-secondary uppercase tracking-widest">
+                  Video A
                 </span>
-              )}
+                {engagement?.winner === "A" && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(250,204,21,0.4)]">
+                    Winner
+                  </span>
+                )}
+              </div>
+              <VideoCard video={videoA} label="A" isWinner={engagement?.winner === "A"} />
             </div>
-            <VideoCard video={videoA} label="A" isWinner={engagement?.winner === "A"} />
+
+            {/* Video B card */}
+            <div className="min-w-[260px] md:min-w-0 shrink-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-bold text-brand-secondary uppercase tracking-widest">
+                  Video B
+                </span>
+                {engagement?.winner === "B" && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(250,204,21,0.4)]">
+                    Winner
+                  </span>
+                )}
+              </div>
+              <VideoCard video={videoB} label="B" isWinner={engagement?.winner === "B"} />
+            </div>
+
+            {/* Engagement comparison — between video cards on desktop */}
+            <div className="hidden md:block pb-4 shrink-0">
+              <EngagementComparison />
+            </div>
           </div>
 
-          {/* Video B card */}
-          <div className="min-w-[260px] md:min-w-0 shrink-0">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-bold text-brand-secondary uppercase tracking-widest">
-                Video B
-              </span>
-              {engagement?.winner === "B" && (
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(250,204,21,0.4)]">
-                  Winner
-                </span>
-              )}
-            </div>
-            <VideoCard video={videoB} label="B" isWinner={engagement?.winner === "B"} />
-          </div>
-
-          {/* Engagement comparison — between video cards on desktop */}
-          <div className="hidden md:block pb-4 shrink-0">
-            <EngagementComparison />
+          {/* Bouncing Down Arrow Indicator (Desktop only) */}
+          <div className="hidden md:flex absolute bottom-0 left-0 right-0 justify-center pb-2 pointer-events-none bg-gradient-to-t from-brand-dark/90 to-transparent pt-8">
+            <ChevronDown size={24} className="text-brand-light/70 animate-bounce drop-shadow-[0_0_8px_rgba(176,228,204,0.5)]" />
           </div>
         </div>
 
