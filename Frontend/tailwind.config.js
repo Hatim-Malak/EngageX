@@ -16,6 +16,7 @@ export default {
       }
     },
   },
-  // Force reload
-  plugins: [],
+  plugins: [
+    require('@tailwindcss/typography'),
+  ],
 }

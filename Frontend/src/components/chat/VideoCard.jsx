@@ -6,15 +6,14 @@ export default function VideoCard({ video, label, isWinner }) {
 
   // Extract YouTube video ID from URL
   const getYoutubeId = (url) => {
-    const match = url.match(/(?:v=|youtu\.be\/)([^&?/]+)/);
+    if (!url) return null;
+    const match = url.match(/(?:v=|youtu\.be\/|shorts\/)([^&?/]+)/);
     return match ? match[1] : null;
   };
 
   // Thumbnail URL
-  const thumbnailUrl =
-    video.platform === "youtube"
-      ? `https://img.youtube.com/vi/${getYoutubeId(video.url)}/mqdefault.jpg`
-      : null; // Instagram: null → show gradient placeholder
+  const ytId = video.platform === "youtube" ? getYoutubeId(video.url) : null;
+  const thumbnailUrl = ytId ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null;
 
   // Format upload date
   const formatDate = (dateStr) => {
@@ -54,7 +53,7 @@ export default function VideoCard({ video, label, isWinner }) {
           }`}
         >
           <span className="text-white font-bold tracking-wide text-sm drop-shadow-md">
-            Instagram Reel
+            {video.platform === "youtube" ? "YouTube Video" : "Instagram Reel"}
           </span>
         </div>
         

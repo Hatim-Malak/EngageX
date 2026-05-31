@@ -68,7 +68,7 @@ load_dotenv()
 GROQ_API_KEY     = os.getenv("GROQ_API_KEY")
 HF_TOKEN         = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX   = os.getenv("PINECONE_INDEX_NAME", "engagex")
+PINECONE_INDEX   = os.getenv("PINECONE_INDEX_NAME", "engageX")
 EMBEDDING_MODEL  = "BAAI/bge-m3"
 
 # Groq free tier models
@@ -645,19 +645,62 @@ def stream_response_node(state: QueryState) -> dict:
     intent         = state.get("intent", "compare")
 
     # ── Build system prompt ──
-    system_prompt = f"""You are VidRival, an AI assistant that helps content creators 
+    system_prompt = f"""You are EngageX, an AI assistant that helps content creators
 analyze and compare two videos to understand what drives engagement.
 
 You have access to:
 1. Full transcripts of both videos (retrieved as chunks below)
 2. Metadata: views, likes, comments, engagement rates, creator info
 
-RULES:
-- Always cite your sources inline using [Video A, MM:SS–MM:SS] format
-- Never make up numbers — only use figures from the context provided
-- When comparing, always reference both videos
-- Be direct and actionable — creators want practical insights
-- If context is insufficient, say so clearly
+═══════════════════════════════════
+FORMATTING RULES (strictly follow):
+═══════════════════════════════════
+
+Always structure your response using markdown like this:
+
+## 🎯 [Short answer headline]
+
+[1-2 sentence direct answer]
+
+---
+
+### 📊 Key Findings
+
+| Metric | Video A | Video B |
+|--------|---------|---------|
+| Engagement Rate | X% | Y% |
+| Views | X | Y |
+| Likes | X | Y |
+
+---
+
+### 🔍 Analysis
+
+**Point 1 title**
+Explanation with citation [Video A, MM:SS–MM:SS]
+
+**Point 2 title**
+Explanation with citation [Video B, MM:SS–MM:SS]
+
+---
+
+### ✅ Takeaway / Suggestions  (only for compare/suggest intents)
+
+1. **First suggestion** — explanation
+2. **Second suggestion** — explanation
+3. **Third suggestion** — explanation
+
+═══════════════════════════════════
+CONTENT RULES:
+═══════════════════════════════════
+- Always cite inline using [Video A, MM:SS–MM:SS] format — never skip citations
+- Never make up numbers — only use figures from the provided context
+- When comparing, always show both videos side by side
+- Use **bold** for key terms and important numbers
+- Use bullet points for lists, numbered lists for steps/suggestions
+- Keep each section short and scannable — no walls of text
+- For metadata-only questions: just answer with a small table, skip Analysis section
+- If context is insufficient, say exactly what is missing
 
 VIDEO METADATA:
 {_build_metadata_context(meta_a, meta_b, engagement)}
@@ -668,11 +711,29 @@ VIDEO METADATA:
 
     # ── Build intent-specific instruction ──
     intent_instructions = {
-        "compare": "Compare both videos directly. Explain what Video A did differently from B and why it matters for engagement.",
-        "single_a": "Focus on Video A. Be specific about what you find in the transcript.",
-        "single_b": "Focus on Video B. Be specific about what you find in the transcript.",
-        "metadata": "Answer using the metadata provided. Be precise with numbers.",
-        "suggest": "Give 3-5 specific, actionable improvements for the lower-performing video based on what worked in the better one.",
+        "compare": (
+            "Compare both videos directly using the format above. "
+            "Show a metrics table first, then explain the key differences. "
+            "Always reference specific moments using timestamps."
+        ),
+        "single_a": (
+            "Focus only on Video A. Use ## heading with the video title. "
+            "Use bold for key insights. Cite timestamps for every claim."
+        ),
+        "single_b": (
+            "Focus only on Video B. Use ## heading with the video title. "
+            "Use bold for key insights. Cite timestamps for every claim."
+        ),
+        "metadata": (
+            "Answer using ONLY the metadata numbers. "
+            "Present as a clean table — no Analysis section needed. "
+            "Be precise with numbers, format them with commas (1,234,567)."
+        ),
+        "suggest": (
+            "Give exactly 3-5 numbered, actionable improvements. "
+            "Each suggestion must: name a specific tactic, explain WHY it works "
+            "based on what Video A did [with timestamp], and HOW to apply it to Video B."
+        ),
     }
     instruction = intent_instructions.get(intent, "")
 
@@ -891,9 +952,10 @@ def stream_query(
     response  = result.get("response", "")
     citations = result.get("citations", [])
 
-    # Stream word by word
+    # Stream word by word, using JSON to safely preserve newlines
     for word in response.split(" "):
-        yield f"data: {word} \n\n"
+        chunk_json = json.dumps({"text": word + " "})
+        yield f"data: {chunk_json}\n\n"
 
     yield f"data: [CITATIONS]{json.dumps(citations)}\n\n"
     yield "data: [DONE]\n\n"

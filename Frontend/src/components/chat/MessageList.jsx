@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import useEngageStore from "../../store/useEngageStore";
 import CitationList from "./CitationList";
 import StreamingMessage from "./StreamingMessage";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 export default function MessageList() {
   const messages = useEngageStore((s) => s.messages);
@@ -27,15 +28,21 @@ export default function MessageList() {
             }`}
           >
             <div
-              className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-md ${
+              className={`max-w-[85%] md:max-w-[80%] px-5 py-4 rounded-2xl text-sm leading-relaxed shadow-md ${
                 msg.role === "user"
                   ? "bg-gradient-to-br from-brand-secondary to-brand-primary text-white rounded-br-sm"
                   : "bg-brand-dark/80 backdrop-blur-md border border-brand-primary/40 text-brand-light rounded-bl-sm"
               }`}
             >
-              <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+              {msg.role === "user" ? (
+                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+              ) : (
+                <MarkdownRenderer content={msg.content} />
+              )}
               {msg.role === "assistant" && msg.citations && (
-                <CitationList citations={msg.citations} />
+                <div className="mt-4 pt-3 border-t border-brand-primary/20">
+                  <CitationList citations={msg.citations} />
+                </div>
               )}
             </div>
           </div>

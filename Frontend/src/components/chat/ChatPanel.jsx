@@ -5,7 +5,7 @@ import NewConversationButton from "./NewConversationButton";
 
 export default function ChatPanel() {
   return (
-    <div className="flex flex-col h-full bg-transparent">
+    <div className="flex-1 flex flex-col min-h-0 w-full bg-transparent">
       <NewConversationButton />
 
       <div className="flex-1 flex flex-col min-h-0 relative">

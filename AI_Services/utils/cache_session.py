@@ -251,8 +251,10 @@ def get_video_metadata(session_id: str, video_id: str) -> Optional[dict]:
     redis = _get_redis()
     raw = redis.get(_key(session_id, "video", video_id))
     if raw is None:
-        return None
-    return json.loads(raw)
+        return [] if "history" in locals() else None
+    if isinstance(raw, (str, bytes, bytearray)):
+        return json.loads(raw)
+    return raw
 
 
 def get_both_metadata(session_id: str) -> dict:
@@ -277,8 +279,10 @@ def get_engagement_comparison(session_id: str) -> Optional[dict]:
     redis = _get_redis()
     raw = redis.get(_key(session_id, "engagement"))
     if raw is None:
-        return None
-    return json.loads(raw)
+        return [] if "history" in locals() else None
+    if isinstance(raw, (str, bytes, bytearray)):
+        return json.loads(raw)
+    return raw
 
 
 def get_session_meta(session_id: str) -> Optional[dict]:
@@ -289,8 +293,10 @@ def get_session_meta(session_id: str) -> Optional[dict]:
     redis = _get_redis()
     raw = redis.get(_key(session_id, "meta"))
     if raw is None:
-        return None
-    return json.loads(raw)
+        return [] if "history" in locals() else None
+    if isinstance(raw, (str, bytes, bytearray)):
+        return json.loads(raw)
+    return raw
 
 
 def session_exists(session_id: str) -> bool:
@@ -358,9 +364,9 @@ def save_history(session_id: str, history: list[dict]) -> bool:
 
     try:
         redis.setex(
-            name  = _key(session_id, "history"),
-            value = json.dumps(history),
-            time  = SESSION_TTL_SECONDS,    # refresh TTL on every write
+            _key(session_id, "history"),
+            SESSION_TTL_SECONDS,    # refresh TTL on every write
+            json.dumps(history),
         )
         # Also refresh the session meta TTL so session stays alive
         # as long as the conversation is active
@@ -389,7 +395,9 @@ def load_history(session_id: str) -> list[dict]:
         raw = redis.get(_key(session_id, "history"))
         if raw is None:
             return []
-        return json.loads(raw)
+        if isinstance(raw, (str, bytes, bytearray)):
+            return json.loads(raw)
+        return raw
     except Exception as e:
         print(f"[cache_session] Failed to load history: {e}")
         return []

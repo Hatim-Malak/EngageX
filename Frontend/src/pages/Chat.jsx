@@ -47,10 +47,16 @@ export default function Chat() {
   // Loading state
   if (sessionLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-brand-dark">
-        <div className="text-center">
-          <LoadingSpinner size={32} color="text-brand-light" />
-          <p className="mt-3 text-sm text-brand-secondary font-medium">Loading session...</p>
+      <div className="h-screen w-full flex items-center justify-center bg-brand-dark relative overflow-hidden">
+        {/* Background radial gradients for depth */}
+        <div className="absolute top-0 right-0 w-[70%] h-[70%] rounded-full bg-brand-primary opacity-20 blur-[140px] pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-[60%] h-[60%] rounded-full bg-brand-secondary opacity-15 blur-[140px] pointer-events-none" />
+        
+        <div className="text-center relative z-10 flex flex-col items-center">
+          <LoadingSpinner size={48} color="text-brand-light" />
+          <p className="mt-5 text-sm text-brand-light/80 font-medium tracking-wide animate-pulse uppercase">
+            Restoring your session...
+          </p>
         </div>
       </div>
     );
@@ -66,18 +72,18 @@ export default function Chat() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-brand-dark text-white relative overflow-hidden">
+    <div className="h-screen w-full flex flex-col bg-brand-dark text-white relative overflow-hidden">
       {/* Background radial gradients for depth */}
-      <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-brand-primary opacity-10 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-brand-secondary opacity-10 blur-[120px] pointer-events-none" />
+      <div className=" absolute top-0 right-0 w-[70%] h-[70%] rounded-full bg-brand-primary opacity-20 blur-[140px] pointer-events-none" />
+      <div className=" absolute bottom-0 left-0 w-[60%] h-[60%] rounded-full bg-brand-secondary opacity-15 blur-[140px] pointer-events-none" />
 
       {/* Header */}
       <Header />
 
       {/* Main content: three-panel layout */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0 p-4 gap-4 relative z-10">
-        {/* Left panel: Video cards */}
-        <div className="flex md:flex-col gap-4 md:w-72 lg:w-80 overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pr-2 shrink-0">
+      <div className="flex-1 w-full flex flex-col md:flex-row min-h-0 p-4 gap-5 relative z-10">
+        {/* Left panel: Video cards — min-h-0 lets it shrink, overflow-y-auto lets it scroll */}
+        <div className="flex md:flex-col gap-5 md:w-72 lg:w-80 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pr-2 md:shrink-0">
           {/* Video A card */}
           <div className="min-w-[260px] md:min-w-0 shrink-0">
             <div className="flex items-center gap-2 mb-2">
@@ -85,7 +91,7 @@ export default function Chat() {
                 Video A
               </span>
               {engagement?.winner === "A" && (
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-2 py-0.5 rounded-full shadow-sm">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(250,204,21,0.4)]">
                   Winner
                 </span>
               )}
@@ -100,7 +106,7 @@ export default function Chat() {
                 Video B
               </span>
               {engagement?.winner === "B" && (
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-2 py-0.5 rounded-full shadow-sm">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(250,204,21,0.4)]">
                   Winner
                 </span>
               )}
@@ -120,8 +126,8 @@ export default function Chat() {
         </div>
 
         {/* Right panel: Chat */}
-        <div className="flex-1 flex flex-col min-h-0 md:min-h-0">
-          <div className="flex-1 flex flex-col bg-brand-dark/40 backdrop-blur-xl rounded-xl border border-brand-primary/50 shadow-2xl overflow-hidden">
+        <div className="flex-1 w-full flex flex-col min-h-0 md:min-h-0">
+          <div className="flex-1 min-h-0 w-full flex flex-col bg-brand-dark/40 backdrop-blur-2xl rounded-2xl border border-brand-secondary/40 shadow-[0_0_30px_rgba(40,90,72,0.3)] overflow-hidden">
             <ChatPanel />
           </div>
         </div>

@@ -8,7 +8,8 @@ Endpoints:
   POST   /api/query                     → single query turn
   POST   /api/query/stream              → SSE streaming query
   GET    /api/session/{id}              → session status + metadata
-  GET    /api/session/{id}/history      → conversation history
+  GET    /api/session/{id}/full         → session + metadata + history in ONE call
+  GET    /api/session/{id}/history      → conversation history only
   DELETE /api/session/{id}/history      → clear history
   GET    /api/rate-limits               → current usage
   GET    /api/health                    → health check (pin in UptimeRobot)
@@ -39,7 +40,7 @@ from upstash_redis import Redis
 from dotenv import load_dotenv
 
 from agents.Ingestion import build_ingestion_graph
-from agents.query import build_query_graph, stream_query
+from agents.query  import build_query_graph, stream_query
 from utils.cache_session import (
     session_exists,
     get_both_metadata,
@@ -213,6 +214,20 @@ class SessionStatusResponse(BaseModel):
     video_b:        Optional[dict]
     engagement:     Optional[dict]
     history_length: int
+
+
+class SessionFullResponse(BaseModel):
+    """Combined response for page load — metadata + history in one call."""
+    session_id:      str
+    exists:          bool
+    video_a:         Optional[dict]
+    video_b:         Optional[dict]
+    engagement:      Optional[dict]
+    history:         list[dict]       # full conversation history
+    history_length:  int
+    queries_used:    int
+    queries_remaining: int
+    queries_limit:   int
 
 
 # ─────────────────────────────────────────────────────────────
@@ -420,6 +435,71 @@ async def get_session_status(session_id: str, request: Request):
         video_b        = both_meta.get("B"),
         engagement     = engagement,
         history_length = history_len,
+    )
+
+
+@router.get("/session/{session_id}/full", response_model=SessionFullResponse)
+@limiter.limit("60/hour")
+async def get_session_full(session_id: str, request: Request):
+    """
+    Combined endpoint — returns EVERYTHING needed on page load in ONE request:
+      - Session existence check
+      - Video A + B metadata (title, creator, views, likes, engagement rate...)
+      - Engagement comparison (winner, diff, summary)
+      - Full conversation history (for rendering previous messages)
+      - Current rate limit usage
+
+    Use this instead of calling /session/{id} and /session/{id}/history separately.
+    Replaces two round-trips with one.
+
+    Frontend usage (on /chat page load):
+        const data = await api.get(`/session/${sessionId}/full`)
+        if (!data.exists) redirect to /
+        set videoA, videoB, engagement, messages, queriesRemaining from data
+    """
+    exists = session_exists(session_id)
+
+    if not exists:
+        return SessionFullResponse(
+            session_id        = session_id,
+            exists            = False,
+            video_a           = None,
+            video_b           = None,
+            engagement        = None,
+            history           = [],
+            history_length    = 0,
+            queries_used      = 0,
+            queries_remaining = SESSION_QUERY_LIMIT,
+            queries_limit     = SESSION_QUERY_LIMIT,
+        )
+
+    # Load everything in parallel using Redis — all fast reads
+    both_meta  = get_both_metadata(session_id)
+    engagement = get_engagement_comparison(session_id)
+    history    = load_history(session_id)
+
+    # Get current query usage from Redis
+    redis  = _get_redis()
+    bucket = date.today().isoformat()
+    key    = f"ratelimit:session_daily:{session_id}:{bucket}"
+    try:
+        queries_used = int(redis.get(key) or 0)
+    except Exception:
+        queries_used = 0
+
+    queries_remaining = max(0, SESSION_QUERY_LIMIT - queries_used)
+
+    return SessionFullResponse(
+        session_id        = session_id,
+        exists            = True,
+        video_a           = both_meta.get("A"),
+        video_b           = both_meta.get("B"),
+        engagement        = engagement,
+        history           = history,
+        history_length    = len(history),
+        queries_used      = queries_used,
+        queries_remaining = queries_remaining,
+        queries_limit     = SESSION_QUERY_LIMIT,
     )
 
 

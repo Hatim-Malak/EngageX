@@ -353,7 +353,14 @@ const useEngageStore = create(
           }
 
           // ── Normal token ───────────────────────────────
-          fullResponse += payload;
+          let tokenText = payload;
+          if (payload.startsWith('{"text":')) {
+            try {
+              tokenText = JSON.parse(payload).text;
+            } catch (e) {}
+          }
+          
+          fullResponse += tokenText;
           set({ streamingResponse: fullResponse });
         }
       }
