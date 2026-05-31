@@ -1,5 +1,6 @@
 from utils.transcribe import fetch_video
 from utils.chunk_and_embed import chunk_and_embed
+import os
 
 def fetch_video_node(state: dict) -> dict:
     """
