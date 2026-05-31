@@ -16,3 +16,4 @@ youtube-transcript-api==0.6.3
 yt-dlp
 langchain_text_splitters
 upstash-redis
+fastapi
