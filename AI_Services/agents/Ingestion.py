@@ -30,13 +30,11 @@ def fetch_video_node(state: IngestionState) -> dict:
 def chunk_embed_node(state: IngestionState) -> dict:
     video_a = state.get("video_a")
     video_b = state.get("video_b")
-
     if not video_a or not video_b:
         raise ValueError("chunk_embed_node requires both video_a and video_b in state")
 
     summary_a = chunk_and_embed(video_a)
     summary_b = chunk_and_embed(video_b)
-
     return {
         "embed_summary_a": summary_a,
         "embed_summary_b": summary_b,
@@ -49,7 +47,6 @@ def cache_session_node(state: dict) -> dict:
     video_b         = state.get("video_b")
     embed_summary_a = state.get("embed_summary_a", {})
     embed_summary_b = state.get("embed_summary_b", {})
-
     if not video_a or not video_b:
         raise ValueError("cache_session_node requires video_a and video_b in state.")
 
@@ -62,9 +59,7 @@ def cache_session_node(state: dict) -> dict:
         embed_summary_a = embed_summary_a,
         embed_summary_b = embed_summary_b,
     )
-
     print(f"[cache_session] Node complete. session_id={session_id}")
-
     return {
         "session_id":         session_id,
         "cache_result":       cache_result,

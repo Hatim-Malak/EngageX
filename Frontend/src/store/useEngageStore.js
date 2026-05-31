@@ -64,6 +64,7 @@ const useEngageStore = create(
 
   // ── 1. Ingest two videos ──────────────────────────────────
   //    POST /api/ingest  { url_a, url_b }
+  //    Then poll GET /api/ingest/status/{job_id}
   ingestVideos: async (urlA, urlB) => {
     set({
       ingesting: true,
@@ -78,32 +79,49 @@ const useEngageStore = create(
         url_b: urlB,
       });
 
-      set({
-        ingesting: false,
-        ingestResult: data,
-        sessionId: data.session_id,
-        sessionExists: true,
-        engagement: {
-          winner: data.engagement_winner,
-          engagement_rate_a: data.engagement_rate_a,
-          engagement_rate_b: data.engagement_rate_b,
-        },
-        queriesUsed: 0,
-        queriesRemaining: 50,
-      });
+      const jobId = data.job_id;
+      if (!jobId) {
+        throw new Error("No job ID returned from ingestion.");
+      }
 
-      toast.success("Videos ingested successfully!");
-      return data;
+      // Poll until finished or failed
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 3000)); // Poll every 3s
+        
+        const statusRes = await api.get(`/ingest/status/${jobId}`);
+        const statusData = statusRes.data;
+
+        if (statusData.status === "finished") {
+          const result = statusData.result;
+          
+          set({
+            ingesting: false,
+            ingestResult: result,
+            sessionId: result.session_id,
+            sessionExists: true,
+            engagement: {
+              winner: result.engagement_winner,
+              engagement_rate_a: result.engagement_rate_a,
+              engagement_rate_b: result.engagement_rate_b,
+            },
+            queriesUsed: 0,
+            queriesRemaining: 50,
+          });
+
+          toast.success("Videos ingested successfully!");
+          return result;
+        } else if (statusData.status === "failed") {
+          throw new Error(statusData.error || "Ingestion failed during processing.");
+        }
+        // If status is queued, started, etc., keep polling
+      }
+
     } catch (err) {
       const msg = err.message || "Ingestion failed";
       set({ ingesting: false, ingestError: msg, error: msg });
-
-      if (err.status === 429) {
-        toast.error("Rate limit reached — try again tomorrow.");
-      } else {
-        toast.error(msg);
-      }
-      return null;
+      
+      toast.error(msg);
+      throw err;
     }
   },
 

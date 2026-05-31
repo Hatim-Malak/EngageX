@@ -1,14 +1,3 @@
-"""
-VidRival — main.py
-FastAPI entry point.
-
-Run locally:
-    uvicorn main:app --reload --port 8000
-
-Render start command:
-    uvicorn main:app --host 0.0.0.0 --port $PORT
-"""
-
 import os
 from contextlib import asynccontextmanager
 
@@ -18,13 +7,13 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from api.ingestion_query_route import router, limiter, get_ingestion_app, get_query_app
+
+from api.ingestion_query_route import router, limiter, get_query_app
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[startup] Pre-building LangGraph graphs...")
-    get_ingestion_app()
+    print("[startup] Pre-building LangGraph query graph...")
     get_query_app()
     print("[startup] Ready.")
     yield
@@ -66,9 +55,11 @@ async def root():
         "health":    "/api/health",
         "endpoints": {
             "ingest":        "POST   /api/ingest",
+            "ingest_status": "GET    /api/ingest/status/{job_id}",  # Added the new polling route
             "query":         "POST   /api/query",
             "query_stream":  "POST   /api/query/stream",
             "session":       "GET    /api/session/{id}",
+            "session_full":  "GET    /api/session/{id}/full",       # Added the full session route
             "history":       "GET    /api/session/{id}/history",
             "clear_history": "DELETE /api/session/{id}/history",
             "rate_limits":   "GET    /api/rate-limits",

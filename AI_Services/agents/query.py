@@ -13,6 +13,7 @@ from utils.cache_session import (
     get_both_metadata,
     get_engagement_comparison,
     get_video_metadata,
+    get_session_snapshot,
     session_exists,
     load_history,
     append_turn,
@@ -20,6 +21,7 @@ from utils.cache_session import (
     get_history_length,
 )
 from pinecone import Pinecone
+from functools import lru_cache
 
 load_dotenv()
 
@@ -85,6 +87,45 @@ def _get_pinecone_index():
         pc = Pinecone(api_key=PINECONE_API_KEY)
         _pinecone_index = pc.Index(PINECONE_INDEX)
     return _pinecone_index
+
+
+# ---------------------------
+# CACHING HELPERS
+# ---------------------------
+
+
+@lru_cache(maxsize=4096)
+def _cached_rewrite(query: str, title_a: str, title_b: str) -> str:
+    """Cached HyDE rewrite using llm_flash. Cache key: (query, title_a, title_b)."""
+    llm   = _get_llm_flash()
+
+    system_prompt = (
+        "You are a video content analyst assistant. "
+        "You are analyzing two videos:\n"
+        f"  Video A: '{title_a}'\n"
+        f"  Video B: '{title_b}'\n\n"
+        "Your task: rewrite the user's question as a hypothetical passage "
+        "that would appear in a video transcript. "
+        "Write 2-3 sentences as if they are spoken words from the video. "
+        "Be specific. Do not answer the question — just rewrite it as transcript text.\n"
+        "Return ONLY the rewritten passage, nothing else."
+    )
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f"Rewrite this question as transcript text: {query}"),
+    ]
+
+    response = llm.invoke(messages)
+    return response.content.strip()
+
+
+@lru_cache(maxsize=8192)
+def _cached_embed_query(text: str) -> tuple:
+    """Cache query-side embeddings (as tuple) to reduce HF calls."""
+    model = _get_embed_model()
+    emb = model.embed_query(text)
+    return tuple(emb)
 
 
 IntentType = Literal["compare", "single_a", "single_b", "metadata", "suggest"]
@@ -198,9 +239,11 @@ def validate_session_node(state: QueryState) -> dict:
             "chat_history":  [],
         }
 
-    both_meta  = get_both_metadata(session_id)
-    engagement = get_engagement_comparison(session_id)
-    history    = load_history(session_id)
+    # Use single-shot Redis snapshot to reduce number of Upstash commands
+    snap       = get_session_snapshot(session_id)
+    both_meta  = {"A": snap.get("video_a", {}), "B": snap.get("video_b", {})}
+    engagement = snap.get("engagement", {})
+    history    = snap.get("history", [])
 
     print(f"[validate_session] Loaded {len(history)} history turns from Redis.")
 
@@ -221,30 +264,16 @@ def query_rewriter_node(state: QueryState) -> dict:
     if not state.get("session_valid"):
         return {"rewritten_query": state["user_query"]}
 
-    llm    = _get_llm_flash()
     query  = state["user_query"]
     meta_a = state.get("meta_a", {})
     meta_b = state.get("meta_b", {})
 
-    system_prompt = (
-        "You are a video content analyst assistant. "
-        "You are analyzing two videos:\n"
-        f"  Video A: '{meta_a.get('title', 'Video A')}' by {meta_a.get('creator', 'unknown')}\n"
-        f"  Video B: '{meta_b.get('title', 'Video B')}' by {meta_b.get('creator', 'unknown')}\n\n"
-        "Your task: rewrite the user's question as a hypothetical passage "
-        "that would appear in a video transcript. "
-        "Write 2-3 sentences as if they are spoken words from the video. "
-        "Be specific. Do not answer the question — just rewrite it as transcript text.\n"
-        "Return ONLY the rewritten passage, nothing else."
+    # Use cached rewrite to avoid repeated Groq calls for identical queries
+    rewritten = _cached_rewrite(
+        query,
+        meta_a.get("title", "Video A"),
+        meta_b.get("title", "Video B"),
     )
-
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"Rewrite this question as transcript text: {query}"),
-    ]
-
-    response  = llm.invoke(messages)
-    rewritten = response.content.strip()
 
     print(f"[query_rewriter] Original:  {query}")
     print(f"[query_rewriter] Rewritten: {rewritten[:100]}...")
@@ -340,9 +369,9 @@ def retrieve_node(state: QueryState) -> dict:
     intent          = state.get("intent", "compare")
     rewritten_query = state.get("rewritten_query") or state["user_query"]
     index           = _get_pinecone_index()
-    embed_model     = _get_embed_model()
 
-    query_embedding = embed_model.embed_query(rewritten_query)
+    # Use cached query embedding to reduce Hugging Face calls for repeated queries
+    query_embedding = list(_cached_embed_query(rewritten_query))
 
     chunks = []
 

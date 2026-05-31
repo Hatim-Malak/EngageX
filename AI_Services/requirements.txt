@@ -18,3 +18,5 @@ langchain_text_splitters
 upstash-redis
 fastapi
 instaloader
+redis
+rq

@@ -9,6 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from pinecone import Pinecone, ServerlessSpec
 from tenacity import retry, wait_exponential, stop_after_attempt
+from functools import lru_cache
 
 load_dotenv()
 
@@ -261,6 +262,20 @@ def _chunk_transcript(video_data: dict) -> list[Chunk]:
 def _embed_texts_with_retry(model: HuggingFaceEndpointEmbeddings, texts: list[str]) -> list[list[float]]:
     """Calls the HuggingFace API with automatic retry on rate limit errors."""
     return model.embed_documents(texts)
+
+
+# Cache batch embeddings by joining texts into a single key. We store tuples
+# (immutable) so they are compatible with lru_cache. This reduces repeated
+# HF calls for identical chunk batches.
+@lru_cache(maxsize=1024)
+def _embed_texts_cached_key(texts_key: str) -> tuple:
+    texts = texts_key.split('\x1f') if texts_key else []
+    model = _get_embed_model()
+    # Use cached batch embedding when possible
+    key = "\x1f".join(texts)
+    embeddings = [list(e) for e in _embed_texts_cached_key(key)]
+    # Convert embeddings to tuple-of-tuples for caching
+    return tuple(tuple(e) for e in embeddings)
 
 
 def _embed_chunks(chunks: list[Chunk]) -> list[tuple[Chunk, list[float]]]:

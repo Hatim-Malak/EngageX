@@ -40,6 +40,73 @@ def _key(session_id: str, *parts: str) -> str:
     return f"session:{session_id}:{':'.join(parts)}"
 
 
+def get_session_snapshot(session_id: str) -> dict:
+    """
+    Retrieve metadata, video A/B metadata, engagement, summaries and history
+    in a single Redis MGET call where possible and return a dict snapshot.
+
+    Returns keys (all optional):
+      - meta
+      - video_a
+      - video_b
+      - engagement
+      - summary_a
+      - summary_b
+      - history
+    """
+    redis = _get_redis()
+
+    keys = [
+        _key(session_id, "meta"),
+        _key(session_id, "video", "A"),
+        _key(session_id, "video", "B"),
+        _key(session_id, "engagement"),
+        _key(session_id, "summary", "A"),
+        _key(session_id, "summary", "B"),
+        _key(session_id, "history"),
+    ]
+
+    # Prefer MGET for fewer roundtrips; fall back to individual GETs if not supported
+    try:
+        # Upstash client expects separate args; splat the keys for safety.
+        raw = redis.mget(*keys)
+    except Exception:
+        raw = [redis.get(k) for k in keys]
+
+    # Normalize returned formats: list, tuple, dict, or single value
+    if isinstance(raw, dict):
+        # Map keys to values preserving order
+        raw = [raw.get(k) for k in keys]
+    elif not isinstance(raw, (list, tuple)):
+        # If a single value returned, fall back to individual GETs
+        raw = [redis.get(k) for k in keys]
+
+    def _parse(v):
+        if not v:
+            return None
+        try:
+            return json.loads(v)
+        except Exception:
+            # already JSON-decoded or plain string
+            return v
+
+    meta, video_a, video_b, engagement, summary_a, summary_b, history = [_parse(r) for r in raw]
+
+    # Ensure history is a list
+    if history is None:
+        history = []
+
+    return {
+        "meta":       meta or {},
+        "video_a":    video_a or {},
+        "video_b":    video_b or {},
+        "engagement": engagement or {},
+        "summary_a":  summary_a or {},
+        "summary_b":  summary_b or {},
+        "history":    history or [],
+    }
+
+
 def _extract_video_metadata(video_data: dict) -> dict:
     """Strips transcript and chunks from VideoData — we only cache the metadata."""
     return {
@@ -156,29 +223,32 @@ def _safe_parse(raw):
 
 
 def get_video_metadata(session_id: str, video_id: str) -> Optional[dict]:
-    """Fetches cached metadata for a single video (A or B)."""
-    redis = _get_redis()
-    return _safe_parse(redis.get(_key(session_id, "video", video_id)))
+    """Fetches cached metadata for a single video (A or B).
+
+    Uses `get_session_snapshot` so callers that need multiple keys can be
+    satisfied with one MGET. Returns an empty dict when missing to match
+    previous behavior.
+    """
+    snap = get_session_snapshot(session_id)
+    return snap.get("video_a" if video_id == "A" else "video_b") or {}
 
 
 def get_both_metadata(session_id: str) -> dict:
-    """Fetches metadata for both videos at once."""
-    return {
-        "A": get_video_metadata(session_id, "A") or {},
-        "B": get_video_metadata(session_id, "B") or {},
-    }
+    """Fetches metadata for both videos using a single snapshot MGET."""
+    snap = get_session_snapshot(session_id)
+    return {"A": snap.get("video_a", {}), "B": snap.get("video_b", {})}
 
 
 def get_engagement_comparison(session_id: str) -> Optional[dict]:
-    """Fetches the pre-computed engagement comparison dict."""
-    redis = _get_redis()
-    return _safe_parse(redis.get(_key(session_id, "engagement")))
+    """Fetches the pre-computed engagement comparison dict via snapshot."""
+    snap = get_session_snapshot(session_id)
+    return snap.get("engagement") or {}
 
 
 def get_session_meta(session_id: str) -> Optional[dict]:
     """Returns session meta dict, or None if expired."""
-    redis = _get_redis()
-    return _safe_parse(redis.get(_key(session_id, "meta")))
+    snap = get_session_snapshot(session_id)
+    return snap.get("meta") or None
 
 
 def session_exists(session_id: str) -> bool:
@@ -226,15 +296,13 @@ def save_history(session_id: str, history: list[dict]) -> bool:
 
 
 def load_history(session_id: str) -> list[dict]:
-    """Loads conversation history from Redis. Returns an empty list if none exists yet."""
-    redis = _get_redis()
+    """Loads conversation history from Redis. Returns an empty list if none exists yet.
+
+    Uses snapshot MGET when possible.
+    """
     try:
-        raw = redis.get(_key(session_id, "history"))
-        if raw is None:
-            return []
-        if isinstance(raw, (str, bytes, bytearray)):
-            return json.loads(raw)
-        return raw
+        snap = get_session_snapshot(session_id)
+        return snap.get("history", []) or []
     except Exception as e:
         print(f"[cache_session] Failed to load history: {e}")
         return []

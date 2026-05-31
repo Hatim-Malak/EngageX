@@ -1,36 +1,11 @@
-"""
-VidRival — api/routes.py
-FastAPI APIRouter with all endpoints.
-Rate limiting via slowapi (wrapper around limits library).
-
-Endpoints:
-  POST   /api/ingest                    → ingest both videos
-  POST   /api/query                     → single query turn
-  POST   /api/query/stream              → SSE streaming query
-  GET    /api/session/{id}              → session status + metadata
-  GET    /api/session/{id}/full         → session + metadata + history in ONE call
-  GET    /api/session/{id}/history      → conversation history only
-  DELETE /api/session/{id}/history      → clear history
-  GET    /api/rate-limits               → current usage
-  GET    /api/health                    → health check (pin in UptimeRobot)
-
-Rate limits (slowapi):
-  POST /api/ingest        →  5/day    per IP   (heavy op)
-  POST /api/query         → 50/day    per IP   (per-session enforced inside)
-  POST /api/query/stream  → 50/day    per IP
-  GET  /api/session/*     → 60/hour   per IP
-  GET  /api/health        → no limit
-
-Dependencies:
-  pip install slowapi limits fastapi upstash-redis
-"""
-
 import os
 import json
 import asyncio
 from typing import Optional
 from datetime import datetime, date
-
+from redis import Redis as StandardRedis
+from rq import Queue
+from rq.job import Job
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, field_validator
@@ -38,8 +13,6 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from upstash_redis import Redis
 from dotenv import load_dotenv
-
-from agents.Ingestion import build_ingestion_graph
 from agents.query  import build_query_graph, stream_query
 from utils.cache_session import (
     session_exists,
@@ -52,13 +25,27 @@ from utils.cache_session import (
 
 load_dotenv()
 
+# ─────────────────────────────────────────────────────────────
+#  Redis & Queue Setup
+# ─────────────────────────────────────────────────────────────
+
+UPSTASH_REDIS_URI = os.getenv("REDIS_URL")  
+if not UPSTASH_REDIS_URI:
+    raise RuntimeError("UPSTASH_REDIS_URI missing in .env")
+
 limiter = Limiter(
-    key_func       = get_remote_address,
-    default_limits = ["1000/day"],
+    key_func=get_remote_address,
+    default_limits=["1000/day"],
+    storage_uri=UPSTASH_REDIS_URI, 
 )
+
+# Standard Redis connection for RQ
+redis_conn = StandardRedis.from_url(UPSTASH_REDIS_URI)
+ingest_queue = Queue("ingestion", connection=redis_conn)
 
 router = APIRouter(prefix="/api", tags=["VidRival"])
 
+# Upstash REST client for session state and queries
 def _get_redis() -> Redis:
     url   = os.getenv("UPSTASH_REDIS_REST_URL")
     token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
@@ -66,10 +53,8 @@ def _get_redis() -> Redis:
         raise RuntimeError("Upstash Redis credentials missing in .env")
     return Redis(url=url, token=token)
 
-
 SESSION_QUERY_LIMIT = 50
 TTL_DAY             = 86400
-
 
 def _check_session_query_limit(session_id: str) -> tuple[int, int]:
     """Increments the per-session daily query counter and raises 429 if the limit is hit."""
@@ -96,16 +81,11 @@ def _check_session_query_limit(session_id: str) -> tuple[int, int]:
     return int(current), SESSION_QUERY_LIMIT
 
 
-_ingestion_app = None
-_query_app     = None
+# ─────────────────────────────────────────────────────────────
+#  Graph Singletons
+# ─────────────────────────────────────────────────────────────
 
-
-def get_ingestion_app():
-    global _ingestion_app
-    if _ingestion_app is None:
-        _ingestion_app = build_ingestion_graph()
-    return _ingestion_app
-
+_query_app = None
 
 def get_query_app():
     global _query_app
@@ -113,6 +93,10 @@ def get_query_app():
         _query_app = build_query_graph()
     return _query_app
 
+
+# ─────────────────────────────────────────────────────────────
+#  Pydantic Models
+# ─────────────────────────────────────────────────────────────
 
 class IngestRequest(BaseModel):
     url_a: str
@@ -132,15 +116,23 @@ class IngestRequest(BaseModel):
         return v
 
 
-class IngestResponse(BaseModel):
-    session_id:        str
-    status:            str
-    chunks_a:          int
-    chunks_b:          int
+class QueuedIngestResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+
+class IngestionResult(BaseModel):
+    session_id: str
     engagement_winner: str
     engagement_rate_a: float
     engagement_rate_b: float
-    message:           str
+
+
+class JobStatusResponse(BaseModel):
+    status: str
+    result: Optional[IngestionResult] = None
+    error: Optional[str] = None
 
 
 class QueryRequest(BaseModel):
@@ -190,43 +182,52 @@ class SessionFullResponse(BaseModel):
     queries_limit:     int
 
 
-@router.post("/ingest", response_model=IngestResponse)
-@limiter.limit("5/day")
+# ─────────────────────────────────────────────────────────────
+#  Endpoints
+# ─────────────────────────────────────────────────────────────
+
+@router.post("/ingest", response_model=QueuedIngestResponse)
+@limiter.limit("10/day")
 async def ingest_videos(request: Request, body: IngestRequest):
-    """Ingests two videos and returns a session_id for future queries."""
+    """
+    Dispatches the heavy ingestion graph to a background worker.
+    Returns a job_id immediately so the frontend doesn't hang.
+    """
     try:
-        app    = get_ingestion_app()
-        result = app.invoke({
-            "url_a": body.url_a,
-            "url_b": body.url_b,
-        })
+        job = ingest_queue.enqueue(
+            "workers.ingestion_worker.run_ingestion_job", 
+            args=(body.url_a, body.url_b),
+            job_timeout=600  # 10 minutes max for Whisper/Pinecone ops
+        )
     except Exception as e:
         raise HTTPException(
-            status_code = 500,
-            detail = {"error": "ingestion_failed", "message": str(e)}
+            status_code=500,
+            detail={"error": "queue_failed", "message": str(e)}
         )
 
-    engagement = result.get("cache_result", {}).get("engagement", {})
-    summary_a  = result.get("embed_summary_a", {})
-    summary_b  = result.get("embed_summary_b", {})
-    session_id = result.get("session_id", "")
-
-    return IngestResponse(
-        session_id        = session_id,
-        status            = "ready",
-        chunks_a          = summary_a.get("chunks_created", 0),
-        chunks_b          = summary_b.get("chunks_created", 0),
-        engagement_winner = engagement.get("winner", "?"),
-        engagement_rate_a = engagement.get("engagement_rate_a", 0.0),
-        engagement_rate_b = engagement.get("engagement_rate_b", 0.0),
-        message           = (
-            f"Ingestion complete. Session ID: {session_id}. "
-            f"Video {engagement.get('winner','?')} has higher engagement "
-            f"({engagement.get('engagement_rate_a',0):.2f}% vs "
-            f"{engagement.get('engagement_rate_b',0):.2f}%). "
-            f"You have {SESSION_QUERY_LIMIT} queries available today."
-        ),
+    return QueuedIngestResponse(
+        job_id=job.id,
+        status="queued",
+        message="Videos added to the processing queue."
     )
+
+
+@router.get("/ingest/status/{job_id}", response_model=JobStatusResponse)
+async def get_ingestion_status(job_id: str):
+    """
+    Frontend polls this endpoint every 3-5 seconds to check if ingestion is done.
+    """
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.is_finished:
+        return JobStatusResponse(status="finished", result=job.result)
+    elif job.is_failed:
+        return JobStatusResponse(status="failed", error=str(job.exc_info))
+    else:
+        return JobStatusResponse(status=job.get_status())
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -484,8 +485,7 @@ async def get_rate_limit_status(request: Request):
 async def health_check():
     """
     Health check — no rate limit.
-    Pin this in UptimeRobot (free) every 5 min to prevent Render cold starts:
-    uptimerobot.com → New Monitor → HTTP → https://your-app.render.com/api/health
+    Pin this in UptimeRobot (free) every 5 min to prevent Render cold starts.
     """
     return {
         "status":    "ok",

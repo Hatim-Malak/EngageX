@@ -11,11 +11,15 @@ import shutil
 import httpx
 import instaloader
 import yt_dlp
+from yt_dlp.utils import DownloadError
 from groq import Groq
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
 from dotenv import load_dotenv
 
 load_dotenv()
+
+YTDLP_COOKIES_PATH = os.getenv("YTDLP_COOKIES_PATH")
+YTDLP_COOKIES_BROWSER = os.getenv("YTDLP_COOKIES_BROWSER")
 
 groq_client = Groq(api_key=os.getenv("GROQ"))
 
@@ -111,6 +115,18 @@ def _compute_engagement(likes: int, comments: int, views: int) -> float:
     return round((likes + comments) / views * 100, 4)
 
 
+def _build_yt_dlp_opts(base_opts: dict | None = None) -> dict:
+    opts = dict(base_opts or {})
+    if YTDLP_COOKIES_PATH:
+        opts["cookiefile"] = YTDLP_COOKIES_PATH
+        print(f"[yt-dlp] Using cookies file from YTDLP_COOKIES_PATH: {YTDLP_COOKIES_PATH}")
+    elif YTDLP_COOKIES_BROWSER:
+        # Wrap the string in a Tuple with a trailing comma!
+        opts["cookiesfrombrowser"] = (YTDLP_COOKIES_BROWSER,) 
+        print(f"[yt-dlp] Using browser cookies from: {YTDLP_COOKIES_BROWSER}")
+    return opts
+
+
 def _download_audio(url: str, tmp_dir: str) -> str:
     """
     Downloads audio from a URL using yt-dlp.
@@ -136,7 +152,8 @@ def _download_audio(url: str, tmp_dir: str) -> str:
         base_opts["ffmpeg_location"] = FFMPEG_LOCATION
 
     if FFMPEG_LOCATION is not None or shutil.which("ffmpeg"):
-        base_opts["format"] = "bestaudio/best"
+        # Added /b as the ultimate fallback
+        base_opts["format"] = "bestaudio/best/b" 
         base_opts["postprocessors"] = [{
             "key":             "FFmpegExtractAudio",
             "preferredcodec":  "mp3",
@@ -144,12 +161,21 @@ def _download_audio(url: str, tmp_dir: str) -> str:
         }]
         print("[fetch_video] ffmpeg found — downloading as mp3")
     else:
-        base_opts["format"] = "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best"
-        print("[fetch_video] ffmpeg NOT found — downloading raw audio (m4a/webm). "
-              "Install ffmpeg for better quality: winget install ffmpeg")
-
-    with yt_dlp.YoutubeDL(base_opts) as ydl:
-        ydl.download([url])
+        # Added /b as the ultimate fallback
+        base_opts["format"] = "bestaudio/best/b" 
+        print("[fetch_video] ffmpeg NOT found — downloading raw audio or video...")
+        
+    ydl_opts = _build_yt_dlp_opts(base_opts)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except DownloadError as e:
+        raise RuntimeError(
+            "yt-dlp failed to download YouTube audio. "
+            "This often happens when the video is age-restricted or requires cookies/login. "
+            "Set YTDLP_COOKIES_PATH or YTDLP_COOKIES_BROWSER in .env and retry. "
+            f"Original error: {e}"
+        ) from e
 
     audio_extensions = ["*.mp3", "*.m4a", "*.webm", "*.wav", "*.ogg", "*.flac", "*.mp4"]
     for pattern in audio_extensions:
@@ -299,8 +325,17 @@ def _fetch_youtube(url: str, video_id: str) -> VideoData:
     if FFMPEG_LOCATION:
         ydl_opts["ffmpeg_location"] = FFMPEG_LOCATION
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    ydl_opts = _build_yt_dlp_opts(ydl_opts)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except DownloadError as e:
+        raise RuntimeError(
+            "yt-dlp failed to extract YouTube metadata. "
+            "This usually means the video is blocked by YouTube's bot/login checks. "
+            "Set YTDLP_COOKIES_PATH or YTDLP_COOKIES_BROWSER in .env and retry. "
+            f"Original error: {e}"
+        ) from e
 
     likes          = info.get("like_count")             or 0
     comments       = info.get("comment_count")          or 0
