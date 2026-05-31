@@ -21,10 +21,6 @@ from slowapi.middleware import SlowAPIMiddleware
 from api.ingestion_query_route import router, limiter, get_ingestion_app, get_query_app
 
 
-# ─────────────────────────────────────────────────────────────
-#  Lifespan — pre-build graphs at startup
-# ─────────────────────────────────────────────────────────────
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[startup] Pre-building LangGraph graphs...")
@@ -32,12 +28,8 @@ async def lifespan(app: FastAPI):
     get_query_app()
     print("[startup] Ready.")
     yield
-    print("[shutdown] VidRival shutting down.")
+    print("[shutdown] Shutting down.")
 
-
-# ─────────────────────────────────────────────────────────────
-#  App
-# ─────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title       = "VidRival API",
@@ -46,13 +38,10 @@ app = FastAPI(
     lifespan    = lifespan,
 )
 
-# ── Register slowapi ──
-# Must be done before adding routes
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# ── CORS ──
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:5173"
@@ -66,7 +55,6 @@ app.add_middleware(
     allow_headers     = ["*"],
 )
 
-# ── Mount router ──
 app.include_router(router)
 
 

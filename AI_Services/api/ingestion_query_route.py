@@ -52,32 +52,12 @@ from utils.cache_session import (
 
 load_dotenv()
 
-# ─────────────────────────────────────────────────────────────
-#  slowapi Limiter
-#
-#  key_func: what identifies a "user" for rate limiting
-#  get_remote_address: uses X-Forwarded-For on Render (real IP)
-#
-#  Storage backend: in-memory by default (fine for single Render instance)
-#  For multi-instance: use storage_uri="redis://..." but Render free = 1 instance
-# ─────────────────────────────────────────────────────────────
-
 limiter = Limiter(
-    key_func        = get_remote_address,   # rate limit per IP
-    default_limits  = ["1000/day"],         # global fallback across all endpoints
+    key_func       = get_remote_address,
+    default_limits = ["1000/day"],
 )
 
-# ─────────────────────────────────────────────────────────────
-#  Router
-# ─────────────────────────────────────────────────────────────
-
 router = APIRouter(prefix="/api", tags=["VidRival"])
-
-# ─────────────────────────────────────────────────────────────
-#  Upstash Redis (for session_id-level query tracking only)
-#  slowapi handles IP-level limits
-#  Redis handles per-session daily query counts
-# ─────────────────────────────────────────────────────────────
 
 def _get_redis() -> Redis:
     url   = os.getenv("UPSTASH_REDIS_REST_URL")
@@ -87,28 +67,19 @@ def _get_redis() -> Redis:
     return Redis(url=url, token=token)
 
 
-SESSION_QUERY_LIMIT = 50     # max queries per session per day
-TTL_DAY             = 86400  # 24 hours in seconds
+SESSION_QUERY_LIMIT = 50
+TTL_DAY             = 86400
 
 
 def _check_session_query_limit(session_id: str) -> tuple[int, int]:
-    """
-    Check and increment per-session daily query counter in Upstash Redis.
-    Returns (current_count, limit).
-    Raises HTTP 429 if limit exceeded.
-
-    Why Redis for this (not slowapi):
-    slowapi keys off IP address. One IP can have multiple sessions,
-    and one session can be accessed from multiple IPs (mobile → desktop).
-    Per-session limiting needs the session_id as the key → Redis directly.
-    """
+    """Increments the per-session daily query counter and raises 429 if the limit is hit."""
     redis  = _get_redis()
-    bucket = date.today().isoformat()          # resets daily
+    bucket = date.today().isoformat()
     key    = f"ratelimit:session_daily:{session_id}:{bucket}"
 
     current = redis.incr(key)
     if current == 1:
-        redis.expire(key, TTL_DAY)            # set TTL on first request
+        redis.expire(key, TTL_DAY)
 
     if current > SESSION_QUERY_LIMIT:
         raise HTTPException(
@@ -125,10 +96,6 @@ def _check_session_query_limit(session_id: str) -> tuple[int, int]:
     return int(current), SESSION_QUERY_LIMIT
 
 
-# ─────────────────────────────────────────────────────────────
-#  Graph singletons — built once at startup, reused every request
-# ─────────────────────────────────────────────────────────────
-
 _ingestion_app = None
 _query_app     = None
 
@@ -136,7 +103,6 @@ _query_app     = None
 def get_ingestion_app():
     global _ingestion_app
     if _ingestion_app is None:
-        print("[api] Building ingestion graph...")
         _ingestion_app = build_ingestion_graph()
     return _ingestion_app
 
@@ -144,14 +110,9 @@ def get_ingestion_app():
 def get_query_app():
     global _query_app
     if _query_app is None:
-        print("[api] Building query graph...")
         _query_app = build_query_graph()
     return _query_app
 
-
-# ─────────────────────────────────────────────────────────────
-#  Request / Response schemas
-# ─────────────────────────────────────────────────────────────
 
 class IngestRequest(BaseModel):
     url_a: str
@@ -217,35 +178,22 @@ class SessionStatusResponse(BaseModel):
 
 
 class SessionFullResponse(BaseModel):
-    """Combined response for page load — metadata + history in one call."""
-    session_id:      str
-    exists:          bool
-    video_a:         Optional[dict]
-    video_b:         Optional[dict]
-    engagement:      Optional[dict]
-    history:         list[dict]       # full conversation history
-    history_length:  int
-    queries_used:    int
+    session_id:        str
+    exists:            bool
+    video_a:           Optional[dict]
+    video_b:           Optional[dict]
+    engagement:        Optional[dict]
+    history:           list[dict]
+    history_length:    int
+    queries_used:      int
     queries_remaining: int
-    queries_limit:   int
+    queries_limit:     int
 
-
-# ─────────────────────────────────────────────────────────────
-#  Endpoints
-# ─────────────────────────────────────────────────────────────
 
 @router.post("/ingest", response_model=IngestResponse)
-@limiter.limit("5/day")          # 5 ingestions per IP per day
+@limiter.limit("5/day")
 async def ingest_videos(request: Request, body: IngestRequest):
-    """
-    Ingest two videos: fetch transcripts + metadata, chunk + embed,
-    upsert to Pinecone, cache to Redis.
-
-    Returns session_id — store this in your frontend for all future queries.
-
-    Rate limit: 5 ingestions/day per IP (slowapi)
-    Takes: 30–120 seconds depending on video length.
-    """
+    """Ingests two videos and returns a session_id for future queries."""
     try:
         app    = get_ingestion_app()
         result = app.invoke({
@@ -282,16 +230,9 @@ async def ingest_videos(request: Request, body: IngestRequest):
 
 
 @router.post("/query", response_model=QueryResponse)
-@limiter.limit("50/day")         # 50 queries per IP per day (slowapi)
+@limiter.limit("50/day")
 async def query(request: Request, body: QueryRequest):
-    """
-    Single query — returns full response (non-streaming).
-    History loaded automatically from Redis.
-
-    Rate limits:
-      - 50 queries/day per IP     (slowapi)
-      - 50 queries/day per session (Upstash Redis)
-    """
+    """Non-streaming query endpoint. History is loaded automatically from Redis."""
     if not session_exists(body.session_id):
         raise HTTPException(
             status_code = 404,
@@ -301,7 +242,6 @@ async def query(request: Request, body: QueryRequest):
             }
         )
 
-    # Per-session limit (slowapi handles per-IP above)
     count, limit = _check_session_query_limit(body.session_id)
 
     try:
@@ -309,7 +249,7 @@ async def query(request: Request, body: QueryRequest):
         result = app.invoke({
             "session_id":   body.session_id,
             "user_query":   body.user_query,
-            "chat_history": [],   # loaded from Redis inside graph
+            "chat_history": [],
         })
     except Exception as e:
         raise HTTPException(
@@ -339,20 +279,9 @@ async def query(request: Request, body: QueryRequest):
 
 
 @router.post("/query/stream")
-@limiter.limit("50/day")         # 50 streaming queries per IP per day
+@limiter.limit("50/day")
 async def query_stream(request: Request, body: QueryRequest):
-    """
-    Streaming query via Server-Sent Events.
-    Responses stream word by word. Use this for the chat UI.
-
-    SSE events:
-      data: [RATELIMIT]{...}\\n\\n   → rate limit info (first event)
-      data: <word> \\n\\n            → response tokens
-      data: [CITATIONS]{...}\\n\\n   → citations (end of response)
-      data: [DONE]\\n\\n             → stream complete
-
-    Rate limits: same as /query
-    """
+    """Streaming query via SSE. Use this for the chat UI."""
     if not session_exists(body.session_id):
         raise HTTPException(
             status_code = 404,
@@ -362,12 +291,10 @@ async def query_stream(request: Request, body: QueryRequest):
             }
         )
 
-    # Per-session limit
     count, limit = _check_session_query_limit(body.session_id)
     remaining    = max(0, limit - count)
 
     async def event_generator():
-        # First event: rate limit info so frontend can update UI
         yield (
             f"data: [RATELIMIT]"
             f"{{\"used\": {count}, \"limit\": {limit}, \"remaining\": {remaining}}}\n\n"
@@ -376,8 +303,6 @@ async def query_stream(request: Request, body: QueryRequest):
         try:
             loop = asyncio.get_event_loop()
 
-            # stream_query is sync generator — run in thread pool
-            # so it doesn't block FastAPI's async event loop
             def run_sync():
                 return list(stream_query(body.session_id, body.user_query))
 
@@ -385,7 +310,7 @@ async def query_stream(request: Request, body: QueryRequest):
 
             for chunk in chunks:
                 yield chunk
-                await asyncio.sleep(0)   # yield control between tokens
+                await asyncio.sleep(0)
 
         except Exception as e:
             yield f"data: [ERROR]{json.dumps({'error': str(e)})}\n\n"
@@ -397,7 +322,7 @@ async def query_stream(request: Request, body: QueryRequest):
         headers    = {
             "Cache-Control":         "no-cache",
             "Connection":            "keep-alive",
-            "X-Accel-Buffering":     "no",             # disable Nginx buffering on Render
+            "X-Accel-Buffering":     "no",
             "X-RateLimit-Limit":     str(limit),
             "X-RateLimit-Remaining": str(remaining),
             "X-RateLimit-Reset":     "tomorrow 00:00 UTC",
@@ -408,10 +333,7 @@ async def query_stream(request: Request, body: QueryRequest):
 @router.get("/session/{session_id}", response_model=SessionStatusResponse)
 @limiter.limit("60/hour")
 async def get_session_status(session_id: str, request: Request):
-    """
-    Check if session exists, load video metadata and engagement comparison.
-    Call on page load to validate session before showing the chat UI.
-    """
+    """Retrieves session status, video metadata, and engagement comparison."""
     exists = session_exists(session_id)
 
     if not exists:
@@ -441,22 +363,7 @@ async def get_session_status(session_id: str, request: Request):
 @router.get("/session/{session_id}/full", response_model=SessionFullResponse)
 @limiter.limit("60/hour")
 async def get_session_full(session_id: str, request: Request):
-    """
-    Combined endpoint — returns EVERYTHING needed on page load in ONE request:
-      - Session existence check
-      - Video A + B metadata (title, creator, views, likes, engagement rate...)
-      - Engagement comparison (winner, diff, summary)
-      - Full conversation history (for rendering previous messages)
-      - Current rate limit usage
-
-    Use this instead of calling /session/{id} and /session/{id}/history separately.
-    Replaces two round-trips with one.
-
-    Frontend usage (on /chat page load):
-        const data = await api.get(`/session/${sessionId}/full`)
-        if (!data.exists) redirect to /
-        set videoA, videoB, engagement, messages, queriesRemaining from data
-    """
+    """Returns everything the chat UI needs on page load in one call."""
     exists = session_exists(session_id)
 
     if not exists:
@@ -473,12 +380,10 @@ async def get_session_full(session_id: str, request: Request):
             queries_limit     = SESSION_QUERY_LIMIT,
         )
 
-    # Load everything in parallel using Redis — all fast reads
     both_meta  = get_both_metadata(session_id)
     engagement = get_engagement_comparison(session_id)
     history    = load_history(session_id)
 
-    # Get current query usage from Redis
     redis  = _get_redis()
     bucket = date.today().isoformat()
     key    = f"ratelimit:session_daily:{session_id}:{bucket}"
@@ -506,10 +411,7 @@ async def get_session_full(session_id: str, request: Request):
 @router.get("/session/{session_id}/history")
 @limiter.limit("60/hour")
 async def get_session_history(session_id: str, request: Request):
-    """
-    Retrieve full conversation history for a session.
-    Returns list of {role, content, timestamp} dicts.
-    """
+    """Retrieves full conversation history for a session."""
     if not session_exists(session_id):
         raise HTTPException(
             status_code = 404,
@@ -527,10 +429,7 @@ async def get_session_history(session_id: str, request: Request):
 @router.delete("/session/{session_id}/history")
 @limiter.limit("10/hour")
 async def clear_session_history(session_id: str, request: Request):
-    """
-    Clear conversation history without deleting the session.
-    Use for the 'New Conversation' button — videos stay ingested.
-    """
+    """Clears conversation history without touching the session or Pinecone vectors."""
     if not session_exists(session_id):
         raise HTTPException(
             status_code = 404,
@@ -548,12 +447,7 @@ async def clear_session_history(session_id: str, request: Request):
 @router.get("/rate-limits")
 @limiter.limit("30/hour")
 async def get_rate_limit_status(request: Request):
-    """
-    Returns current per-session rate limit status.
-    Pass session_id as query param to check session usage.
-
-    Example: GET /api/rate-limits?session_id=vidrival_a3f9c21b
-    """
+    """Returns current rate limit status. Pass ?session_id=... for per-session usage."""
     session_id = request.query_params.get("session_id")
     result     = {
         "ip_limits": {

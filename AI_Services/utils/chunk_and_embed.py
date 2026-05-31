@@ -1,16 +1,3 @@
-"""
-VidRival — chunk_embed.py
-Chunks transcript segments using LangChain RecursiveCharacterTextSplitter,
-embeds with BGE-M3 via HuggingFace Inference API,
-and upserts to Pinecone with full metadata for filtered RAG retrieval.
-
-Pipeline:
-  VideoData → LangChain text splitter → BGE-M3 embeddings (HF API) → Pinecone upsert
-
-Dependencies:
-  pip install langchain langchain-huggingface pinecone python-dotenv tenacity
-"""
-
 import os
 import re
 import time
@@ -22,33 +9,26 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from pinecone import Pinecone, ServerlessSpec
 from tenacity import retry, wait_exponential, stop_after_attempt
+
 load_dotenv()
 
-# ─────────────────────────────────────────────────────────────
-#  Config
-# ─────────────────────────────────────────────────────────────
-
-PINECONE_API_KEY   = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX     = os.getenv("PINECONE_INDEX_NAME", "engagex")
-HF_TOKEN           = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-EMBEDDING_MODEL    = "BAAI/bge-m3"   # used only for display/logging
-EMBED_DIM          = 1024             # BGE-M3 output dimension
-CHUNK_TOKEN_SIZE   = 512              # max tokens per chunk (word-based estimate)
-CHUNK_OVERLAP      = 64               # overlap between consecutive chunks
-PINECONE_BATCH     = 100              # vectors per upsert batch
-PINECONE_CLOUD     = "aws"
-PINECONE_REGION    = "us-east-1"      # Pinecone free tier is us-east-1
-
-# ─────────────────────────────────────────────────────────────
-#  Singletons (loaded once, reused across calls)
-# ─────────────────────────────────────────────────────────────
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX   = os.getenv("PINECONE_INDEX_NAME", "engagex")
+HF_TOKEN         = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+EMBEDDING_MODEL  = "BAAI/bge-m3"
+EMBED_DIM        = 1024
+CHUNK_TOKEN_SIZE = 512
+CHUNK_OVERLAP    = 64
+PINECONE_BATCH   = 100
+PINECONE_CLOUD   = "aws"
+PINECONE_REGION  = "us-east-1"
 
 _embed_model: HuggingFaceEndpointEmbeddings | None = None
 _pinecone_index = None
 
 
 def _get_embed_model() -> HuggingFaceEndpointEmbeddings:
-    """Returns singleton HuggingFace Inference API embeddings client."""
+    """Returns a singleton HuggingFace embeddings client."""
     global _embed_model
     if _embed_model is None:
         if not HF_TOKEN:
@@ -70,7 +50,6 @@ def _get_pinecone_index():
 
         pc = Pinecone(api_key=PINECONE_API_KEY)
 
-        # Create index if it doesn't exist
         existing = [idx.name for idx in pc.list_indexes()]
         if PINECONE_INDEX not in existing:
             print(f"[chunk_embed] Creating Pinecone index '{PINECONE_INDEX}'...")
@@ -83,7 +62,6 @@ def _get_pinecone_index():
                     region = PINECONE_REGION,
                 ),
             )
-            # Wait for index to be ready
             while not pc.describe_index(PINECONE_INDEX).status["ready"]:
                 print("[chunk_embed] Waiting for index to be ready...")
                 time.sleep(2)
@@ -95,19 +73,14 @@ def _get_pinecone_index():
     return _pinecone_index
 
 
-# ─────────────────────────────────────────────────────────────
-#  Chunk type
-# ─────────────────────────────────────────────────────────────
-
 class Chunk(TypedDict):
-    chunk_id:        str    # unique ID: "{video_id}_chunk_{n}"
-    video_id:        str    # "A" or "B"
-    text:            str    # chunk text
+    chunk_id:        str
+    video_id:        str
+    text:            str
     token_count:     int
     chunk_index:     int
-    timestamp_start: float  # seconds into video
+    timestamp_start: float
     timestamp_end:   float
-    # metadata carried forward from VideoData
     platform:        str
     url:             str
     title:           str
@@ -119,63 +92,49 @@ class Chunk(TypedDict):
     engagement_rate: float
     upload_date:     str
     duration:        int
-    hashtags:        str    # stored as space-joined string for Pinecone
+    hashtags:        str
 
 
-# ─────────────────────────────────────────────────────────────
-#  Step 1: Chunking
-# ─────────────────────────────────────────────────────────────
-
-# ── LangChain text splitter (singleton) ──
 _text_splitter: RecursiveCharacterTextSplitter | None = None
 
 
 def _get_text_splitter() -> RecursiveCharacterTextSplitter:
-    """
-    Returns a singleton RecursiveCharacterTextSplitter.
-
-    Why RecursiveCharacterTextSplitter:
-    - Tries to split on paragraph → sentence → word boundaries in that order
-    - Never cuts mid-sentence if it can avoid it
-    - chunk_size in characters (~2000 chars ≈ 400-500 words ≈ 512 tokens for speech)
-    - chunk_overlap in characters (~300 chars ≈ 60 tokens)
-    """
+    """Returns a singleton RecursiveCharacterTextSplitter configured for transcript text."""
     global _text_splitter
     if _text_splitter is None:
         _text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size         = 2000,    # ~512 tokens for conversational English
-            chunk_overlap      = 300,     # ~64 token overlap between chunks
-            length_function    = len,     # character-based length
-            separators         = [
-                "\n\n",   # paragraph break — highest priority
-                "\n",      # line break
-                ". ",       # sentence end
-                "? ",       # question end
-                "! ",       # exclamation end
-                ", ",       # clause break
-                " ",        # word break — last resort
-                "",         # character break — absolute fallback
+            chunk_size    = 2000,
+            chunk_overlap = 300,
+            length_function = len,
+            separators = [
+                "\n\n",
+                "\n",
+                ". ",
+                "? ",
+                "! ",
+                ", ",
+                " ",
+                "",
             ],
         )
     return _text_splitter
 
 
 def _clean_transcript(text: str) -> str:
-    """Remove noise tokens from transcript text before splitting."""
-    text = re.sub(r"\[.*?\]", "", text)   # [Music], [Applause], [Laughter]
-    text = re.sub(r"♪[^♪]*♪", "", text)    # ♪ song lyrics ♪
-    text = re.sub(r"\s+", " ", text)       # collapse multiple spaces/newlines
+    """Strips noise tokens like [Music] and ♪ lyrics ♪ before splitting."""
+    text = re.sub(r"\[.*?\]", "", text)
+    text = re.sub(r"♪[^♪]*♪", "", text)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
 def _build_timestamped_full_text(segments: list[dict]) -> tuple[str, list[dict]]:
     """
-    Joins all transcript segments into one full text string.
-    Also returns a lookup table: character_offset → {start, end} timestamp
-    so we can map chunk positions back to video timestamps after splitting.
+    Joins all transcript segments into one string and returns a
+    character-offset to timestamp lookup table alongside it.
     """
-    full_text = ""
-    offset_map = []   # [{char_start, char_end, ts_start, ts_end}]
+    full_text  = ""
+    offset_map = []
 
     for seg in segments:
         text = seg.get("text", "").strip()
@@ -200,24 +159,20 @@ def _find_timestamp_for_chunk(
     offset_map: list[dict],
 ) -> tuple[float, float]:
     """
-    Find the video timestamp for a chunk by locating its position
-    in the full text and looking up the offset map.
-    Returns (timestamp_start, timestamp_end) in seconds.
+    Locates a chunk's position in the full transcript text and returns
+    its (start, end) timestamp in seconds.
     """
     if not offset_map:
         return 0.0, 0.0
 
-    # Find where this chunk starts in the full text
-    pos = full_text.find(chunk_text[:80])  # use first 80 chars to locate
+    pos = full_text.find(chunk_text[:80])
     if pos == -1:
-        # Fallback: return timestamps of first and last segment
         return offset_map[0]["ts_start"], offset_map[-1]["ts_end"]
 
     chunk_end_pos = pos + len(chunk_text)
 
-    # Find segments that overlap with this character range
-    ts_start = offset_map[-1]["ts_start"]  # default to last
-    ts_end   = offset_map[0]["ts_end"]     # default to first
+    ts_start = offset_map[-1]["ts_start"]
+    ts_end   = offset_map[0]["ts_end"]
 
     for entry in offset_map:
         if entry["char_start"] <= pos < entry["char_end"]:
@@ -230,25 +185,13 @@ def _find_timestamp_for_chunk(
 
 
 def _chunk_transcript(video_data: dict) -> list[Chunk]:
-    """
-    Splits transcript into chunks using LangChain RecursiveCharacterTextSplitter.
-
-    Flow:
-    1. Clean noise ([Music], ♪) from all segments
-    2. Join all segments into one full text string
-    3. Build a char-offset → timestamp lookup table
-    4. Run LangChain splitter on the full text
-    5. Map each chunk back to its video timestamp
-    6. Attach all video metadata to every chunk
-    """
+    """Cleans, joins, splits, and timestamps the transcript into Chunk objects."""
     video_id = video_data["video_id"]
     segments = video_data.get("transcript_chunks", [])
 
     if not segments:
-        # Fallback: treat full transcript string as single segment
         segments = [{"text": video_data.get("transcript", ""), "start": 0.0, "end": 0.0}]
 
-    # ── Step 1: Clean ──
     cleaned_segments = []
     for seg in segments:
         cleaned_text = _clean_transcript(seg.get("text", ""))
@@ -259,31 +202,26 @@ def _chunk_transcript(video_data: dict) -> list[Chunk]:
         print("[chunk_embed] Warning: all segments empty after cleaning.")
         return []
 
-    # ── Step 2 + 3: Join text + build offset map ──
     full_text, offset_map = _build_timestamped_full_text(cleaned_segments)
 
     if not full_text:
         print("[chunk_embed] Warning: full_text is empty.")
         return []
 
-    # ── Step 4: LangChain split ──
     splitter    = _get_text_splitter()
     split_texts = splitter.split_text(full_text)
 
     print(f"[chunk_embed] Video {video_id}: LangChain produced {len(split_texts)} chunks "
           f"from {len(cleaned_segments)} segments.")
 
-    # ── Step 5 + 6: Build Chunk objects ──
     chunks: list[Chunk] = []
     for idx, chunk_text in enumerate(split_texts):
         chunk_text = chunk_text.strip()
         if not chunk_text:
             continue
 
-        # Map back to timestamp
         ts_start, ts_end = _find_timestamp_for_chunk(chunk_text, full_text, offset_map)
 
-        # Stable chunk ID
         chunk_hash = hashlib.md5(
             f"{video_id}_{idx}_{chunk_text[:50]}".encode()
         ).hexdigest()[:8]
@@ -293,7 +231,7 @@ def _chunk_transcript(video_data: dict) -> list[Chunk]:
             chunk_id        = chunk_id,
             video_id        = video_id,
             text            = chunk_text,
-            token_count     = len(chunk_text.split()),   # word count (display only)
+            token_count     = len(chunk_text.split()),
             chunk_index     = idx,
             timestamp_start = ts_start,
             timestamp_end   = ts_end,
@@ -315,39 +253,22 @@ def _chunk_transcript(video_data: dict) -> list[Chunk]:
     return chunks
 
 
-# ─────────────────────────────────────────────────────────────
-#  Step 2: Embedding
-# ─────────────────────────────────────────────────────────────
-
 @retry(
     wait=wait_exponential(min=2, max=10),
     stop=stop_after_attempt(3),
     reraise=True,
 )
 def _embed_texts_with_retry(model: HuggingFaceEndpointEmbeddings, texts: list[str]) -> list[list[float]]:
-    """
-    Calls HuggingFace Inference API with automatic retry on rate limits (429).
-    Retries up to 3 times with exponential backoff: 2s → 4s → 8s.
-    """
+    """Calls the HuggingFace API with automatic retry on rate limit errors."""
     return model.embed_documents(texts)
 
 
 def _embed_chunks(chunks: list[Chunk]) -> list[tuple[Chunk, list[float]]]:
-    """
-    Embed all chunks via HuggingFace Inference API (BGE-M3).
-
-    BGE-M3 tip: prefix with 'Represent this sentence:' on the document side
-    for better retrieval recall (~3-5% improvement).
-
-    HF free tier limit: ~1000 requests/day.
-    Each call embeds all chunks in one batch request.
-    """
+    """Embeds all chunks via BGE-M3 on the HuggingFace Inference API."""
     if not chunks:
         return []
 
     model = _get_embed_model()
-
-    # BGE-M3 passage prefix — only on document side, not query side
     texts = [f"Represent this sentence: {c['text']}" for c in chunks]
 
     print(f"[chunk_embed] Embedding {len(chunks)} chunks via HuggingFace API ({EMBEDDING_MODEL})...")
@@ -358,49 +279,27 @@ def _embed_chunks(chunks: list[Chunk]) -> list[tuple[Chunk, list[float]]]:
     return list(zip(chunks, embeddings))
 
 
-# ─────────────────────────────────────────────────────────────
-#  Step 3: Pinecone upsert
-# ─────────────────────────────────────────────────────────────
-
 def _upsert_to_pinecone(chunk_embeddings: list[tuple[Chunk, list[float]]]) -> int:
-    """
-    Upsert chunk vectors to Pinecone in batches of PINECONE_BATCH.
-    Returns total number of vectors upserted.
-
-    Pinecone metadata fields (all filterable):
-      - video_id        → filter by "A" or "B" in RAG retrieval
-      - chunk_index     → used for citation ordering
-      - timestamp_start → surfaced in citations "[Video A, 01:24]"
-      - engagement_rate → available to LLM for comparison queries
-      - creator, views, likes, comments, follower_count → metadata queries
-    """
+    """Upserts all chunk vectors to Pinecone in batches. Returns total upserted count."""
     if not chunk_embeddings:
         return 0
 
-    index = _get_pinecone_index()
+    index          = _get_pinecone_index()
     total_upserted = 0
 
-    # Build Pinecone vector records
     vectors = []
     for chunk, embedding in chunk_embeddings:
         vectors.append({
             "id":     chunk["chunk_id"],
             "values": embedding,
             "metadata": {
-                # ── Retrieval filters ──
                 "video_id":        chunk["video_id"],
                 "chunk_index":     chunk["chunk_index"],
-
-                # ── Text (for LLM context) ──
                 "text":            chunk["text"],
-
-                # ── Citation data ──
                 "timestamp_start": chunk["timestamp_start"],
                 "timestamp_end":   chunk["timestamp_end"],
                 "title":           chunk["title"],
                 "url":             chunk["url"],
-
-                # ── Engagement metadata ──
                 "engagement_rate": chunk["engagement_rate"],
                 "views":           chunk["views"],
                 "likes":           chunk["likes"],
@@ -414,7 +313,6 @@ def _upsert_to_pinecone(chunk_embeddings: list[tuple[Chunk, list[float]]]) -> in
             },
         })
 
-    # ── Batch upsert ──
     for batch_start in range(0, len(vectors), PINECONE_BATCH):
         batch = vectors[batch_start : batch_start + PINECONE_BATCH]
         index.upsert(vectors=batch)
@@ -425,33 +323,11 @@ def _upsert_to_pinecone(chunk_embeddings: list[tuple[Chunk, list[float]]]) -> in
     return total_upserted
 
 
-# ─────────────────────────────────────────────────────────────
-#  Public function — called directly or via LangGraph
-# ─────────────────────────────────────────────────────────────
-
 def chunk_and_embed(video_data: dict) -> dict:
-    """
-    Full pipeline: VideoData → chunks → embeddings → Pinecone.
-
-    Args:
-        video_data: VideoData dict from fetch_video()
-
-    Returns:
-        Summary dict with chunk count, vector count, and first 3 chunk previews
-
-    Example:
-        from fetch_video import fetch_video
-        from chunk_embed import chunk_and_embed
-
-        data   = fetch_video("https://youtube.com/watch?v=...", "A")
-        result = chunk_and_embed(data)
-        print(result["chunks_created"])   # 42
-        print(result["vectors_upserted"]) # 42
-    """
+    """Runs the full pipeline: transcript → chunks → embeddings → Pinecone upsert."""
     video_id = video_data.get("video_id", "?")
     print(f"\n[chunk_embed] ── Starting pipeline for Video {video_id} ──")
 
-    # Step 1: Chunk
     chunks = _chunk_transcript(video_data)
     if not chunks:
         return {
@@ -461,11 +337,8 @@ def chunk_and_embed(video_data: dict) -> dict:
             "error":            "No chunks produced — transcript may be empty",
         }
 
-    # Step 2: Embed
     chunk_embeddings = _embed_chunks(chunks)
-
-    # Step 3: Upsert to Pinecone
-    total_upserted = _upsert_to_pinecone(chunk_embeddings)
+    total_upserted   = _upsert_to_pinecone(chunk_embeddings)
 
     summary = {
         "video_id":         video_id,
@@ -479,17 +352,16 @@ def chunk_and_embed(video_data: dict) -> dict:
         },
         "chunk_previews": [
             {
-                "chunk_id":   c["chunk_id"],
-                "index":      c["chunk_index"],
-                "tokens":     c["token_count"],
-                "timestamp":  f"{c['timestamp_start']:.1f}s – {c['timestamp_end']:.1f}s",
-                "preview":    c["text"][:120] + "..." if len(c["text"]) > 120 else c["text"],
+                "chunk_id":  c["chunk_id"],
+                "index":     c["chunk_index"],
+                "tokens":    c["token_count"],
+                "timestamp": f"{c['timestamp_start']:.1f}s – {c['timestamp_end']:.1f}s",
+                "preview":   c["text"][:120] + "..." if len(c["text"]) > 120 else c["text"],
             }
-            for c in chunks[:3]  # first 3 chunks only
+            for c in chunks[:3]
         ],
     }
 
     print(f"[chunk_embed] ── Video {video_id} complete: "
           f"{len(chunks)} chunks, {total_upserted} vectors ──\n")
     return summary
-
