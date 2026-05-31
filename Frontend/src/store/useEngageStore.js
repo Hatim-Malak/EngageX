@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import api, { API_BASE_URL } from "./api";
 import toast from "react-hot-toast";
 
@@ -12,7 +13,9 @@ import toast from "react-hot-toast";
 //   • Rate Limits – per-IP and per-session usage
 // ═══════════════════════════════════════════════════════════════
 
-const useEngageStore = create((set, get) => ({
+const useEngageStore = create(
+  persist(
+    (set, get) => ({
   // ─────────────────────────────────────────────────────────────
   //  Session state
   // ─────────────────────────────────────────────────────────────
@@ -467,6 +470,24 @@ const useEngageStore = create((set, get) => ({
 
   // ── Internal (not for UI) ─────────────────────────────────
   _abortStream: null,
-}));
+    }),
+    {
+      name: "engagex-store",
+      // Only persist the state that should survive a page reload.
+      // Transient flags (ingesting, isStreaming, etc.) reset to defaults.
+      partialize: (state) => ({
+        sessionId: state.sessionId,
+        sessionExists: state.sessionExists,
+        videoA: state.videoA,
+        videoB: state.videoB,
+        engagement: state.engagement,
+        messages: state.messages,
+        queriesUsed: state.queriesUsed,
+        queriesRemaining: state.queriesRemaining,
+        queriesLimit: state.queriesLimit,
+      }),
+    }
+  )
+);
 
 export default useEngageStore;

@@ -66,9 +66,9 @@ load_dotenv()
 # ─────────────────────────────────────────────────────────────
 
 GROQ_API_KEY     = os.getenv("GROQ_API_KEY")
-HF_TOKEN         = os.getenv("HF_TOKEN")
+HF_TOKEN         = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX   = os.getenv("PINECONE_INDEX_NAME", "vidrival-index")
+PINECONE_INDEX   = os.getenv("PINECONE_INDEX_NAME", "engagex")
 EMBEDDING_MODEL  = "BAAI/bge-m3"
 
 # Groq free tier models

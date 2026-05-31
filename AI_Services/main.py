@@ -1,28 +1,89 @@
+"""
+VidRival — main.py
+FastAPI entry point.
+
+Run locally:
+    uvicorn main:app --reload --port 8000
+
+Render start command:
+    uvicorn main:app --host 0.0.0.0 --port $PORT
+"""
+
 import os
-from dotenv import load_dotenv
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from contextlib import asynccontextmanager
 
-# 1. Load environment variables
-load_dotenv()
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
-hf_token = os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+from api.ingestion_query_route import router, limiter, get_ingestion_app, get_query_app
 
-if not hf_token:
-    raise ValueError("Missing critical environment variables!")
 
-# 2. Initialize the embedding model
-embeddings = HuggingFaceEndpointEmbeddings(model="BAAI/bge-m3")
+# ─────────────────────────────────────────────────────────────
+#  Lifespan — pre-build graphs at startup
+# ─────────────────────────────────────────────────────────────
 
-# 3. TEST: Generate an embedding for a sample sentence
-try:
-    test_text = "Testing my video RAG chatbot embedding generation."
-    vector = embeddings.embed_query(test_text)
-    
-    print("\n--- EMBEDDING TEST SUCCESSFUL ---")
-    print(f"Vector Type: {type(vector)}")
-    print(f"Vector Dimensions: {len(vector)} (Expected: 1024)")
-    print(f"First 5 values: {vector[:5]}")
-    
-except Exception as e:
-    print("\n--- EMBEDDING TEST FAILED ---")
-    print(f"Error details: {e}")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("[startup] Pre-building LangGraph graphs...")
+    get_ingestion_app()
+    get_query_app()
+    print("[startup] Ready.")
+    yield
+    print("[shutdown] VidRival shutting down.")
+
+
+# ─────────────────────────────────────────────────────────────
+#  App
+# ─────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title       = "VidRival API",
+    description = "RAG-powered video engagement analysis",
+    version     = "1.0.0",
+    lifespan    = lifespan,
+)
+
+# ── Register slowapi ──
+# Must be done before adding routes
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# ── CORS ──
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173"
+).split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins     = ALLOWED_ORIGINS,
+    allow_credentials = True,
+    allow_methods     = ["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers     = ["*"],
+)
+
+# ── Mount router ──
+app.include_router(router)
+
+
+@app.get("/")
+async def root():
+    return {
+        "service":   "VidRival API",
+        "docs":      "/docs",
+        "health":    "/api/health",
+        "endpoints": {
+            "ingest":        "POST   /api/ingest",
+            "query":         "POST   /api/query",
+            "query_stream":  "POST   /api/query/stream",
+            "session":       "GET    /api/session/{id}",
+            "history":       "GET    /api/session/{id}/history",
+            "clear_history": "DELETE /api/session/{id}/history",
+            "rate_limits":   "GET    /api/rate-limits",
+            "health":        "GET    /api/health",
+        }
+    }

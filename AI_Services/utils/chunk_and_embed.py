@@ -22,8 +22,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from pinecone import Pinecone, ServerlessSpec
 from tenacity import retry, wait_exponential, stop_after_attempt
-from transcribe import fetch_video
-
 load_dotenv()
 
 # ─────────────────────────────────────────────────────────────

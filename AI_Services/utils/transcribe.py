@@ -18,6 +18,7 @@ from typing import TypedDict, Optional
 
 import shutil
 import httpx
+import instaloader
 import yt_dlp
 from groq import Groq
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
@@ -394,58 +395,78 @@ def _fetch_instagram(url: str, video_id: str) -> VideoData:
     """
     Fetch transcript + metadata for an Instagram Reel.
     Instagram has no caption API → always uses Groq Whisper.
-    Metadata comes from yt-dlp (works for public reels).
+    Metadata comes directly from Instaloader GraphQL schema.
     """
+    # ── 1. Extract shortcode from URL ──
+    # Matches /p/SHORTCODE, /reel/SHORTCODE, or /tv/SHORTCODE
+    match = re.search(r"/(?:p|reel|tv)/([^/?#&]+)", url)
+    if not match:
+        raise ValueError(f"Could not extract Instagram shortcode from: {url}")
+    shortcode = match.group(1)
 
-    # ── 1. Metadata via yt-dlp ──
-    ydl_opts = {
-        "quiet":         True,
-        "no_warnings":   True,
-        "skip_download": True,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        },
-    }
-    if FFMPEG_LOCATION:
-        ydl_opts["ffmpeg_location"] = FFMPEG_LOCATION
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    # ── 2. Metadata via Instaloader ──
+    print(f"[fetch_video] Fetching Instaloader metadata for {shortcode}...")
+    L = instaloader.Instaloader(quiet=True)
+    
+    try:
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+    except Exception as e:
+        raise RuntimeError(f"Instaloader failed to fetch post {shortcode}: {e}")
 
-    likes    = info.get("like_count")    or 0
-    comments = info.get("comment_count") or 0
-    views    = info.get("view_count")    or 0
+    # Extract metrics safely
+    likes = post.likes or 0
+    comments = post.comments or 0
+    views = post.video_view_count if post.is_video and post.video_view_count else 0
+    
+    # Followers requires a jump to the owner's profile object
+    try:
+        follower_count = post.owner_profile.followers or 0
+    except Exception:
+        follower_count = 0
 
-    # Instagram doesn't expose follower count via yt-dlp
-    # You'll need Instaloader or manual input for this field
-    follower_count = info.get("channel_follower_count") or 0
+    description = post.caption or ""
+    title = description[:80] if description else "Instagram Reel"
+    creator = post.owner_username or "Unknown"
+    upload_date = post.date_utc.strftime("%Y-%m-%d") if post.date_utc else "unknown"
+    
+    # Video duration (fallback to 0 if not available)
+    duration = getattr(post, 'video_duration', 0)
+    duration = int(duration) if duration else 0
 
-    # ── 2. Audio download + Groq Whisper transcription ──
+    if not post.is_video or not post.video_url:
+        raise ValueError("This Instagram post is not a video or has no video URL.")
+
+    # ── 3. Direct Video Download + Groq Whisper transcription ──
+    transcript_chunks = []
     with tempfile.TemporaryDirectory() as tmp_dir:
-        print(f"[fetch_video] Downloading Instagram audio for Groq Whisper...")
-        audio_path = _download_audio(url, tmp_dir)
-        transcript_chunks = _transcribe_with_groq(audio_path)
+        print("[fetch_video] Downloading Instagram MP4 directly for Groq Whisper...")
+        video_path = os.path.join(tmp_dir, "video.mp4")
+        
+        # Download the .mp4 file directly using the URL provided by Instaloader
+        with httpx.Client() as client:
+            response = client.get(post.video_url, follow_redirects=True)
+            response.raise_for_status()
+            with open(video_path, "wb") as f:
+                f.write(response.content)
+
+        # Groq Whisper accepts .mp4 files natively, bypassing FFmpeg entirely!
+        transcript_chunks = _transcribe_with_groq(video_path)
 
     transcript_text = " ".join(c["text"] for c in transcript_chunks)
-
-    description = info.get("description", "") or info.get("title", "")
 
     return VideoData(
         video_id        = video_id,
         platform        = "instagram",
         url             = url,
-        title           = info.get("title", description[:80] or "Instagram Reel"),
-        creator         = info.get("uploader", info.get("channel", "Unknown")),
+        title           = title,
+        creator         = creator,
         follower_count  = follower_count,
         views           = views,
         likes           = likes,
         comments        = comments,
         hashtags        = _parse_hashtags(description),
-        upload_date     = _format_date(info.get("upload_date", "")),
-        duration        = info.get("duration") or 0,
+        upload_date     = upload_date,
+        duration        = duration,
         engagement_rate = _compute_engagement(likes, comments, views),
         transcript      = transcript_text,
         transcript_chunks = transcript_chunks,

@@ -215,9 +215,9 @@ def cache_session(
     written_keys = []
     for key, value in keys_to_write.items():
         redis.setex(
-            name  = key,
-            value = json.dumps(value),
-            time  = SESSION_TTL_SECONDS,
+            key,
+            SESSION_TTL_SECONDS,
+            json.dumps(value),
         )
         written_keys.append(key)
         print(f"[cache_session] Cached → {key}")
