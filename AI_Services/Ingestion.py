@@ -1,5 +1,5 @@
 from utils.transcribe import fetch_video
-
+from utils.chunk_and_embed import chunk_and_embed
 
 def fetch_video_node(state: dict) -> dict:
     """
@@ -21,17 +21,56 @@ def fetch_video_node(state: dict) -> dict:
 
 
 
+def chunk_embed_node(state: dict) -> dict:
+    """
+    LangGraph node. Reads video_a and video_b from state,
+    runs chunk_and_embed for both, writes summaries back.
+
+    State keys consumed:  video_a, video_b
+    State keys produced:  embed_summary_a, embed_summary_b, ingestion_complete
+    """
+    video_a = state.get("video_a")
+    video_b = state.get("video_b")
+
+    if not video_a or not video_b:
+        raise ValueError("chunk_embed_node requires both video_a and video_b in state")
+
+    summary_a = chunk_and_embed(video_a)
+    summary_b = chunk_and_embed(video_b)
+
+    return {
+        **state,
+        "embed_summary_a":   summary_a,
+        "embed_summary_b":   summary_b,
+        "ingestion_complete": True,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+#  Quick test — python chunk_embed.py
+# ─────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     import json
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
 
-    TEST_YT_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    TEST_IG_URL = "https://www.instagram.com/reel/YOUR_REEL_ID/"
 
-    print("Testing YouTube fetch...")
-    yt_data = fetch_video(TEST_YT_URL, "A")
-    print(json.dumps({
-        k: v for k, v in yt_data.items()
-        if k not in ("transcript", "transcript_chunks")
-    }, indent=2))
-    print(f"Transcript preview: {yt_data['transcript']}")
-    print(f"Total chunks: {len(yt_data['transcript_chunks'])}")
+
+    TEST_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    print("=" * 60)
+    print("Step 1: Fetching video...")
+    print("=" * 60)
+    video_data = fetch_video(TEST_URL, "A")
+    print(f"Got transcript: {len(video_data['transcript_chunks'])} segments")
+
+    print("\n" + "=" * 60)
+    print("Step 2: Chunk + Embed + Upsert...")
+    print("=" * 60)
+    result = chunk_and_embed(video_data)
+
+    print("\n" + "=" * 60)
+    print("Result:")
+    print("=" * 60)
+    print(json.dumps(result, indent=2))

@@ -18,6 +18,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "sentence-transformers>=5.5.1",
     "slowapi>=0.1.9",
+    "upstash-redis>=1.7.0",
     "uvicorn>=0.48.0",
     "websockets>=16.0",
     "youtube-transcript-api==0.6.3",

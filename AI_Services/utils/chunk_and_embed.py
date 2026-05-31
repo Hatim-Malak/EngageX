@@ -22,6 +22,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from pinecone import Pinecone, ServerlessSpec
 from tenacity import retry, wait_exponential, stop_after_attempt
+from transcribe import fetch_video
 
 load_dotenv()
 
@@ -30,8 +31,8 @@ load_dotenv()
 # ─────────────────────────────────────────────────────────────
 
 PINECONE_API_KEY   = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX     = os.getenv("PINECONE_INDEX_NAME", "vidrival-index")
-HF_TOKEN           = os.getenv("HF_TOKEN")
+PINECONE_INDEX     = os.getenv("PINECONE_INDEX_NAME", "engagex")
+HF_TOKEN           = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 EMBEDDING_MODEL    = "BAAI/bge-m3"   # used only for display/logging
 EMBED_DIM          = 1024             # BGE-M3 output dimension
 CHUNK_TOKEN_SIZE   = 512              # max tokens per chunk (word-based estimate)
@@ -494,61 +495,3 @@ def chunk_and_embed(video_data: dict) -> dict:
           f"{len(chunks)} chunks, {total_upserted} vectors ──\n")
     return summary
 
-
-# ─────────────────────────────────────────────────────────────
-#  LangGraph node wrapper
-# ─────────────────────────────────────────────────────────────
-
-def chunk_embed_node(state: dict) -> dict:
-    """
-    LangGraph node. Reads video_a and video_b from state,
-    runs chunk_and_embed for both, writes summaries back.
-
-    State keys consumed:  video_a, video_b
-    State keys produced:  embed_summary_a, embed_summary_b, ingestion_complete
-    """
-    video_a = state.get("video_a")
-    video_b = state.get("video_b")
-
-    if not video_a or not video_b:
-        raise ValueError("chunk_embed_node requires both video_a and video_b in state")
-
-    summary_a = chunk_and_embed(video_a)
-    summary_b = chunk_and_embed(video_b)
-
-    return {
-        **state,
-        "embed_summary_a":   summary_a,
-        "embed_summary_b":   summary_b,
-        "ingestion_complete": True,
-    }
-
-
-# ─────────────────────────────────────────────────────────────
-#  Quick test — python chunk_embed.py
-# ─────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    import json
-    import sys
-    sys.path.insert(0, os.path.dirname(__file__))
-
-    from utils.transcribe import fetch_video
-
-    TEST_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-
-    print("=" * 60)
-    print("Step 1: Fetching video...")
-    print("=" * 60)
-    video_data = fetch_video(TEST_URL, "A")
-    print(f"Got transcript: {len(video_data['transcript_chunks'])} segments")
-
-    print("\n" + "=" * 60)
-    print("Step 2: Chunk + Embed + Upsert...")
-    print("=" * 60)
-    result = chunk_and_embed(video_data)
-
-    print("\n" + "=" * 60)
-    print("Result:")
-    print("=" * 60)
-    print(json.dumps(result, indent=2))
