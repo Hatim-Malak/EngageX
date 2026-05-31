@@ -47,10 +47,10 @@ export default function Chat() {
   // Loading state
   if (sessionLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-brand-dark">
         <div className="text-center">
-          <LoadingSpinner size={32} color="text-blue-500" />
-          <p className="mt-3 text-sm text-gray-500">Loading session...</p>
+          <LoadingSpinner size={32} color="text-brand-light" />
+          <p className="mt-3 text-sm text-brand-secondary font-medium">Loading session...</p>
         </div>
       </div>
     );
@@ -59,29 +59,33 @@ export default function Chat() {
   // If session doesn't exist after load, wait for redirect
   if (!sessionExists) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-sm text-gray-400">Redirecting...</p>
+      <div className="min-h-screen flex items-center justify-center bg-brand-dark">
+        <p className="text-sm text-brand-secondary font-medium">Redirecting...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-brand-dark text-white relative overflow-hidden">
+      {/* Background radial gradients for depth */}
+      <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-brand-primary opacity-10 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-brand-secondary opacity-10 blur-[120px] pointer-events-none" />
+
       {/* Header */}
       <Header />
 
       {/* Main content: three-panel layout */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0 p-4 gap-4">
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 p-4 gap-4 relative z-10">
         {/* Left panel: Video cards */}
-        <div className="flex md:flex-col gap-4 md:w-72 lg:w-80 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0">
+        <div className="flex md:flex-col gap-4 md:w-72 lg:w-80 overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pr-2 shrink-0">
           {/* Video A card */}
-          <div className="min-w-[260px] md:min-w-0 flex-shrink-0 md:flex-shrink">
+          <div className="min-w-[260px] md:min-w-0 shrink-0">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <span className="text-xs font-bold text-brand-secondary uppercase tracking-widest">
                 Video A
               </span>
               {engagement?.winner === "A" && (
-                <span className="text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-2 py-0.5 rounded-full shadow-sm">
                   Winner
                 </span>
               )}
@@ -90,13 +94,13 @@ export default function Chat() {
           </div>
 
           {/* Video B card */}
-          <div className="min-w-[260px] md:min-w-0 flex-shrink-0 md:flex-shrink">
+          <div className="min-w-[260px] md:min-w-0 shrink-0">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <span className="text-xs font-bold text-brand-secondary uppercase tracking-widest">
                 Video B
               </span>
               {engagement?.winner === "B" && (
-                <span className="text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-2 py-0.5 rounded-full shadow-sm">
                   Winner
                 </span>
               )}
@@ -105,19 +109,19 @@ export default function Chat() {
           </div>
 
           {/* Engagement comparison — between video cards on desktop */}
-          <div className="hidden md:block">
+          <div className="hidden md:block pb-4 shrink-0">
             <EngagementComparison />
           </div>
         </div>
 
         {/* Mobile: Engagement comparison below scroll row */}
-        <div className="md:hidden">
+        <div className="md:hidden shrink-0">
           <EngagementComparison />
         </div>
 
         {/* Right panel: Chat */}
         <div className="flex-1 flex flex-col min-h-0 md:min-h-0">
-          <div className="flex-1 flex flex-col bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="flex-1 flex flex-col bg-brand-dark/40 backdrop-blur-xl rounded-xl border border-brand-primary/50 shadow-2xl overflow-hidden">
             <ChatPanel />
           </div>
         </div>

@@ -13,9 +13,9 @@ export default function MessageList() {
   }, [messages]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+    <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
       {messages.length === 0 ? (
-        <p className="text-center text-gray-400 text-sm mt-8">
+        <p className="text-center text-brand-light/50 font-medium text-sm mt-10">
           No messages yet. Ask a question to get started.
         </p>
       ) : (
@@ -27,10 +27,10 @@ export default function MessageList() {
             }`}
           >
             <div
-              className={`max-w-[75%] px-3 py-2 rounded-lg text-sm leading-relaxed ${
+              className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-md ${
                 msg.role === "user"
-                  ? "bg-gray-800 text-white rounded-br-sm"
-                  : "bg-gray-100 text-gray-900 rounded-bl-sm"
+                  ? "bg-gradient-to-br from-brand-secondary to-brand-primary text-white rounded-br-sm"
+                  : "bg-brand-dark/80 backdrop-blur-md border border-brand-primary/40 text-brand-light rounded-bl-sm"
               }`}
             >
               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -43,7 +43,7 @@ export default function MessageList() {
       )}
       {queryError && (
         <div className="flex justify-center">
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg max-w-[75%]">
+          <div className="bg-red-900/40 backdrop-blur-sm border border-red-500/50 text-red-300 text-sm px-4 py-2 rounded-xl shadow-sm max-w-[80%] text-center">
             {queryError}
           </div>
         </div>

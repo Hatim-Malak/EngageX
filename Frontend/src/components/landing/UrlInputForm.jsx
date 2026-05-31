@@ -27,10 +27,10 @@ export default function UrlInputForm() {
   }, [ingestResult, navigate]);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {/* URL A input */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-brand-light mb-1.5 opacity-90">
           Video A — YouTube
         </label>
         <input
@@ -39,13 +39,13 @@ export default function UrlInputForm() {
           onChange={(e) => setUrlA(e.target.value)}
           placeholder="https://youtube.com/watch?v=..."
           disabled={ingesting}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          className="w-full px-4 py-3 bg-brand-dark/50 border border-brand-primary rounded-lg focus:ring-2 focus:ring-brand-light focus:border-brand-light disabled:opacity-50 disabled:cursor-not-allowed text-sm text-white placeholder-gray-400 transition-all shadow-inner"
         />
       </div>
 
       {/* URL B input */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-brand-light mb-1.5 opacity-90">
           Video B — Instagram Reel
         </label>
         <input
@@ -54,7 +54,7 @@ export default function UrlInputForm() {
           onChange={(e) => setUrlB(e.target.value)}
           placeholder="https://instagram.com/reel/..."
           disabled={ingesting}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          className="w-full px-4 py-3 bg-brand-dark/50 border border-brand-primary rounded-lg focus:ring-2 focus:ring-brand-light focus:border-brand-light disabled:opacity-50 disabled:cursor-not-allowed text-sm text-white placeholder-gray-400 transition-all shadow-inner"
         />
       </div>
 
@@ -62,22 +62,22 @@ export default function UrlInputForm() {
       <button
         type="submit"
         disabled={ingesting || !urlA.trim() || !urlB.trim()}
-        className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-brand-secondary to-brand-primary hover:from-brand-light hover:to-brand-secondary text-white hover:text-brand-dark px-4 py-3.5 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-[0_0_15px_rgba(64,138,113,0.3)] hover:shadow-[0_0_25px_rgba(176,228,204,0.5)] transform hover:-translate-y-0.5"
       >
         {ingesting ? (
           <>
-            <Loader2 size={18} className="animate-spin" /> Analyzing Videos...
+            <Loader2 size={20} className="animate-spin" /> Analyzing Videos...
           </>
         ) : (
           <>
-            <ArrowRight size={18} /> Analyze Videos
+            <ArrowRight size={20} /> Analyze Videos
           </>
         )}
       </button>
 
       {/* Inline error */}
       {ingestError && (
-        <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        <p className="text-red-300 text-sm bg-red-900/40 border border-red-500/50 rounded-lg px-3 py-2 text-center mt-2 shadow-sm backdrop-blur-sm">
           {ingestError}
         </p>
       )}

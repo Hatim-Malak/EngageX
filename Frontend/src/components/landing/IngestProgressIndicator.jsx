@@ -32,25 +32,25 @@ export default function IngestProgressIndicator() {
   if (!ingesting) return null;
 
   return (
-    <div className="bg-white border-t border-gray-200 p-4 space-y-3">
+    <div className="bg-brand-dark/40 border border-brand-primary/50 rounded-xl p-5 space-y-4 shadow-inner">
       {STEPS.map((step, index) => (
         <div className="flex items-center gap-3" key={index}>
           <div className="w-6 h-6 flex items-center justify-center">
             {activeStep > index ? (
-              <Check size={16} className="text-green-500" />
+              <Check size={18} className="text-brand-secondary drop-shadow-md" />
             ) : activeStep === index ? (
-              <Loader2 size={16} className="animate-spin text-blue-500" />
+              <Loader2 size={18} className="animate-spin text-brand-light" />
             ) : (
-              <div className="w-2 h-2 rounded-full bg-gray-300" />
+              <div className="w-2 h-2 rounded-full bg-gray-600" />
             )}
           </div>
           <span
             className={`text-sm ${
               activeStep > index
-                ? "text-green-700"
+                ? "text-brand-secondary font-medium"
                 : activeStep === index
-                ? "text-blue-700 font-medium"
-                : "text-gray-400"
+                ? "text-brand-light font-semibold"
+                : "text-gray-500"
             }`}
           >
             {step.label}

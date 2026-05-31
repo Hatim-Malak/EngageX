@@ -395,30 +395,50 @@ def _fetch_instagram(url: str, video_id: str) -> VideoData:
     """
     Fetch transcript + metadata for an Instagram Reel.
     Instagram has no caption API → always uses Groq Whisper.
-    Metadata comes directly from Instaloader GraphQL schema.
+    Metadata comes directly from Instaloader GraphQL schema (authenticated).
     """
     # ── 1. Extract shortcode from URL ──
-    # Matches /p/SHORTCODE, /reel/SHORTCODE, or /tv/SHORTCODE
-    match = re.search(r"/(?:p|reel|tv)/([^/?#&]+)", url)
+    match = re.search(r"/(?:p|reel|reels|tv)/([^/?#&]+)", url)
     if not match:
         raise ValueError(f"Could not extract Instagram shortcode from: {url}")
     shortcode = match.group(1)
 
-    # ── 2. Metadata via Instaloader ──
+    # ── 2. Metadata via Instaloader (AUTHENTICATED) ──
     print(f"[fetch_video] Fetching Instaloader metadata for {shortcode}...")
     L = instaloader.Instaloader(quiet=True)
     
+    # >>> START OF UPDATE: Session Authentication Logic <<<
+    ig_user = os.getenv("IG_USERNAME")
+    ig_pass = os.getenv("IG_PASSWORD")
+    
+    if ig_user and ig_pass:
+        try:
+            # Try loading a saved cookie session file to stay under the radar
+            L.load_session_from_file(ig_user)
+            print("[fetch_video] Loaded existing Instagram session from file.")
+        except FileNotFoundError:
+            try:
+                print("[fetch_video] No session file found. Logging into Instagram...")
+                L.login(ig_user, ig_pass)
+                L.save_session_to_file()  # Persist session to local file for next time
+                print("[fetch_video] Successfully logged in and saved session.")
+            except Exception as login_err:
+                print(f"[fetch_video] Login failed: {login_err}. Attempting unauthenticated...")
+    else:
+        print("[fetch_video] WARNING: No IG credentials found in .env. Metrics may fail.")
+    # >>> END OF UPDATE <<<
+
+    # Fetch the post data using the authenticated context
     try:
         post = instaloader.Post.from_shortcode(L.context, shortcode)
     except Exception as e:
         raise RuntimeError(f"Instaloader failed to fetch post {shortcode}: {e}")
 
-    # Extract metrics safely
+    # Extract metrics safely (Now unlocked via authentication)
     likes = post.likes or 0
     comments = post.comments or 0
     views = post.video_view_count if post.is_video and post.video_view_count else 0
     
-    # Followers requires a jump to the owner's profile object
     try:
         follower_count = post.owner_profile.followers or 0
     except Exception:
@@ -429,7 +449,6 @@ def _fetch_instagram(url: str, video_id: str) -> VideoData:
     creator = post.owner_username or "Unknown"
     upload_date = post.date_utc.strftime("%Y-%m-%d") if post.date_utc else "unknown"
     
-    # Video duration (fallback to 0 if not available)
     duration = getattr(post, 'video_duration', 0)
     duration = int(duration) if duration else 0
 
@@ -442,14 +461,12 @@ def _fetch_instagram(url: str, video_id: str) -> VideoData:
         print("[fetch_video] Downloading Instagram MP4 directly for Groq Whisper...")
         video_path = os.path.join(tmp_dir, "video.mp4")
         
-        # Download the .mp4 file directly using the URL provided by Instaloader
         with httpx.Client() as client:
             response = client.get(post.video_url, follow_redirects=True)
             response.raise_for_status()
             with open(video_path, "wb") as f:
                 f.write(response.content)
 
-        # Groq Whisper accepts .mp4 files natively, bypassing FFmpeg entirely!
         transcript_chunks = _transcribe_with_groq(video_path)
 
     transcript_text = " ".join(c["text"] for c in transcript_chunks)

@@ -1,67 +1,86 @@
-import UrlInputForm from "../components/landing/UrlInputForm"
-import IngestProgressIndicator from "../components/landing/IngestProgressIndicator"
-import SessionRestorePrompt from "../components/landing/SessionRestorePrompt"
+import UrlInputForm from "../components/landing/UrlInputForm";
+import IngestProgressIndicator from "../components/landing/IngestProgressIndicator";
+import SessionRestorePrompt from "../components/landing/SessionRestorePrompt";
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl">
-        {/* Hero section */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 tracking-tight">
+    <div className="min-h-screen bg-brand-dark text-white relative overflow-hidden flex flex-col items-center pt-16 md:pt-24 pb-12 px-4 selection:bg-brand-secondary selection:text-white">
+      {/* Background radial gradients for depth */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-brand-primary opacity-20 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-brand-secondary opacity-10 blur-[120px] pointer-events-none" />
+
+      {/* Hero Section */}
+      <div className="w-full max-w-3xl text-center mb-12 relative z-10">
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6">
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-light via-white to-brand-secondary drop-shadow-lg">
             EngageX
-          </h1>
-          <p className="mt-2 text-gray-600 text-lg">
-            Compare YouTube and Instagram engagement with AI-powered analysis
-          </p>
-        </div>
+          </span>
+        </h1>
+        <p className="text-lg md:text-xl text-brand-light opacity-80 font-medium max-w-2xl mx-auto leading-relaxed">
+          Unlock the ultimate comparison between your YouTube and Instagram videos. Let AI dissect engagement, transcripts, and metadata in seconds.
+        </p>
+      </div>
 
-        {/* Main card */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-          {/* Two-column layout on desktop, stacked on mobile */}
-          <div className="flex flex-col md:flex-row">
-            {/* Left: Form */}
-            <div className="flex-1 p-6 md:p-8">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Analyze Your Videos
-              </h2>
-              <UrlInputForm />
-            </div>
-
-            {/* Right: Info / Steps */}
-            <div className="flex-1 bg-gray-50 p-6 md:p-8 border-t md:border-t-0 md:border-l border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                How It Works
-              </h2>
-              <ol className="space-y-4">
-                {[
-                  ["Paste URLs", "Add a YouTube and Instagram Reel link"],
-                  ["AI Analysis", "Our engine extracts transcripts, metadata, and engagement data"],
-                  ["Smart Chat", "Ask questions and get comparative insights"],
-                ].map(([title, desc], i) => (
-                  <li key={i} className="flex gap-3">
-                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-semibold">
-                      {i + 1}
-                    </span>
-                    <div>
-                      <p className="font-medium text-gray-900 text-sm">{title}</p>
-                      <p className="text-gray-500 text-sm">{desc}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
+      {/* Centered Form Card (Glassmorphism) */}
+      <div className="w-full max-w-lg relative z-10 mb-16">
+        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-6 md:p-8">
+          <h2 className="text-xl font-bold text-white mb-6 text-center tracking-wide">
+            Start Your Analysis
+          </h2>
+          <UrlInputForm />
+          
+          {/* Progress Indicator */}
+          <div className="mt-6">
+             <IngestProgressIndicator />
           </div>
-
-          {/* Progress indicator (below card, only visible during ingestion) */}
-          <IngestProgressIndicator />
         </div>
 
-        {/* Session restore prompt below the main card */}
+        {/* Session Restore Prompt */}
         <div className="mt-6">
           <SessionRestorePrompt />
         </div>
       </div>
+
+      {/* How it Works - Horizontal Grid */}
+      <div className="w-full max-w-5xl relative z-10">
+        <h3 className="text-center text-sm font-bold text-brand-secondary uppercase tracking-widest mb-8">
+          How It Works
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[
+            {
+              step: "1",
+              title: "Paste URLs",
+              desc: "Drop a YouTube and an Instagram Reel link into the form.",
+            },
+            {
+              step: "2",
+              title: "AI Analysis",
+              desc: "Our engine extracts transcripts, metadata, and calculates true engagement.",
+            },
+            {
+              step: "3",
+              title: "Smart Chat",
+              desc: "Compare videos side-by-side and chat with our AI to uncover insights.",
+            },
+          ].map((item, i) => (
+            <div
+              key={i}
+              className="bg-brand-primary/20 border border-brand-secondary/30 rounded-xl p-6 text-center hover:bg-brand-primary/30 transition-all duration-300"
+            >
+              <div className="w-10 h-10 mx-auto bg-gradient-to-br from-brand-secondary to-brand-primary text-white rounded-full flex items-center justify-center font-bold text-lg mb-4 shadow-lg">
+                {item.step}
+              </div>
+              <h4 className="font-semibold text-brand-light text-lg mb-2">
+                {item.title}
+              </h4>
+              <p className="text-sm text-gray-300 leading-relaxed">
+                {item.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
-  )
+  );
 }

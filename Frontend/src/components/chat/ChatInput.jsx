@@ -41,8 +41,8 @@ export default function ChatInput() {
 
   if (queriesRemaining === 0) {
     return (
-      <div className="p-4 border-t border-gray-200 bg-gray-50">
-        <p className="text-sm text-center text-orange-600 font-medium">
+      <div className="p-4 border-t border-brand-primary/30 bg-brand-dark/60 backdrop-blur-md">
+        <p className="text-sm text-center text-red-400 font-medium">
           Daily limit reached — resets at midnight UTC
         </p>
       </div>
@@ -50,8 +50,8 @@ export default function ChatInput() {
   }
 
   return (
-    <div className="border-t border-gray-200 p-3 bg-white">
-      <div className="flex items-end gap-2">
+    <div className="border-t border-brand-primary/30 p-4 bg-brand-dark/50 backdrop-blur-md">
+      <div className="flex items-end gap-3 max-w-4xl mx-auto">
         <textarea
           ref={textareaRef}
           value={input}
@@ -63,26 +63,26 @@ export default function ChatInput() {
           placeholder="Ask about your videos..."
           disabled={isStreaming || queryLoading}
           rows={1}
-          className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed outline-none"
+          className="flex-1 resize-none bg-brand-dark/80 border border-brand-primary rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-brand-light focus:border-brand-light disabled:opacity-50 disabled:cursor-not-allowed outline-none shadow-inner custom-scrollbar transition-all"
         />
         {isStreaming ? (
           <button
             onClick={handleStop}
-            className="flex-shrink-0 bg-red-500 text-white p-2.5 rounded-lg hover:bg-red-600 transition-colors"
+            className="flex-shrink-0 bg-red-600/90 text-white p-3.5 rounded-xl hover:bg-red-500 transition-colors shadow-lg border border-red-400/30"
             aria-label="Stop streaming"
             title="Stop"
           >
-            <Square size={18} />
+            <Square size={20} className="fill-current" />
           </button>
         ) : (
           <button
             onClick={handleSubmit}
             disabled={!input.trim() || queryLoading}
-            className="flex-shrink-0 bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex-shrink-0 bg-gradient-to-br from-brand-secondary to-brand-primary text-white p-3.5 rounded-xl hover:to-brand-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg border border-brand-secondary/50 group"
             aria-label="Send message"
             title="Send"
           >
-            <Send size={18} />
+            <Send size={20} className="group-hover:translate-x-0.5 transition-transform" />
           </button>
         )}
       </div>

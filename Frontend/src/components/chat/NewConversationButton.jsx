@@ -8,13 +8,13 @@ export default function NewConversationButton() {
   if (messages.length === 0) return null;
 
   return (
-    <div className="px-4 py-2 border-b border-gray-100">
+    <div className="px-5 py-2.5 border-b border-brand-primary/30 bg-brand-dark/40 backdrop-blur-sm z-10 shadow-sm">
       <button
         onClick={() => clearHistory()}
-        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors"
+        className="flex items-center gap-2 text-xs font-semibold text-brand-light/70 hover:text-white transition-colors"
         title="Start a new conversation (videos stay loaded)"
       >
-        <MessageSquarePlus size={14} />
+        <MessageSquarePlus size={16} />
         New Conversation
       </button>
     </div>

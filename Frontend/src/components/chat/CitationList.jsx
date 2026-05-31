@@ -1,4 +1,4 @@
-import { ExternalLink, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 import { toast } from "react-hot-toast";
 import useEngageStore from "../../store/useEngageStore";
 
@@ -28,19 +28,26 @@ export default function CitationList({ citations }) {
         "noopener"
       );
     } else {
-      toast("Open Instagram to view at this timestamp", { icon: "📱" });
+      toast.success("Open Instagram to view at this timestamp", { 
+        icon: "📱",
+        style: {
+          background: "#091413",
+          color: "#B0E4CC",
+          border: "1px solid #285A48"
+        }
+      });
     }
   };
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-2">
+    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-brand-primary/30">
       {citations.map((cit, i) => (
         <button
           key={i}
           onClick={() => handleCitationClick(cit)}
-          className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 px-2 py-1 rounded-full transition-colors border border-blue-200"
+          className="inline-flex items-center gap-1 text-[11px] font-medium bg-brand-primary/40 text-brand-light hover:bg-brand-secondary hover:text-white px-2.5 py-1 rounded-md transition-colors border border-brand-secondary/40 shadow-sm"
         >
-          <Clock size={10} />
+          <Clock size={12} />
           Video {cit.video_id} · {cit.timestamp_start}–{cit.timestamp_end}
         </button>
       ))}
