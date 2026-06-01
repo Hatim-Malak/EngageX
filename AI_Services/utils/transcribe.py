@@ -121,7 +121,6 @@ def _build_yt_dlp_opts(base_opts: dict | None = None) -> dict:
         opts["cookiefile"] = YTDLP_COOKIES_PATH
         print(f"[yt-dlp] Using cookies file from YTDLP_COOKIES_PATH: {YTDLP_COOKIES_PATH}")
     elif YTDLP_COOKIES_BROWSER:
-        # Wrap the string in a Tuple with a trailing comma!
         opts["cookiesfrombrowser"] = (YTDLP_COOKIES_BROWSER,) 
         print(f"[yt-dlp] Using browser cookies from: {YTDLP_COOKIES_BROWSER}")
     return opts

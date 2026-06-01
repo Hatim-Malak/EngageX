@@ -347,8 +347,8 @@ def get_history_length(session_id: str) -> int:
 
 
 def make_session_id() -> str:
-    """Generates a unique session ID in the format vidrival_{8-char-hex}."""
-    return f"vidrival_{uuid.uuid4().hex[:8]}"
+    """Generates a unique session ID in the format engagex_{8-char-hex}."""
+    return f"engagex_{uuid.uuid4().hex[:8]}"
 
 
 def cache_session_node(state: dict) -> dict:

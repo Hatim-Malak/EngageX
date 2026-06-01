@@ -43,7 +43,7 @@ limiter = Limiter(
 redis_conn = StandardRedis.from_url(UPSTASH_REDIS_URI)
 ingest_queue = Queue("ingestion", connection=redis_conn)
 
-router = APIRouter(prefix="/api", tags=["VidRival"])
+router = APIRouter(prefix="/api", tags=["EngageX"])
 
 # Upstash REST client for session state and queries
 def _get_redis() -> Redis:
@@ -489,6 +489,6 @@ async def health_check():
     """
     return {
         "status":    "ok",
-        "service":   "VidRival API",
+        "service":   "EngageX API",
         "timestamp": datetime.utcnow().isoformat(),
     }
