@@ -32,7 +32,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
+    "https:",
     "http://localhost:5173"
 ).split(",")
 
