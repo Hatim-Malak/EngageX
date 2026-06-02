@@ -32,7 +32,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 ALLOWED_ORIGINS = os.getenv(
-    "https:",
+    "https://engage-x-rouge.vercel.app/",
     "http://localhost:5173"
 ).split(",")
 
@@ -55,11 +55,11 @@ async def root():
         "health":    "/api/health",
         "endpoints": {
             "ingest":        "POST   /api/ingest",
-            "ingest_status": "GET    /api/ingest/status/{job_id}",  # Added the new polling route
+            "ingest_status": "GET    /api/ingest/status/{job_id}",  
             "query":         "POST   /api/query",
             "query_stream":  "POST   /api/query/stream",
             "session":       "GET    /api/session/{id}",
-            "session_full":  "GET    /api/session/{id}/full",       # Added the full session route
+            "session_full":  "GET    /api/session/{id}/full",       
             "history":       "GET    /api/session/{id}/history",
             "clear_history": "DELETE /api/session/{id}/history",
             "rate_limits":   "GET    /api/rate-limits",
