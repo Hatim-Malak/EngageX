@@ -128,7 +128,8 @@ def _cached_embed_query(text: str) -> tuple:
     return tuple(emb)
 
 
-IntentType = Literal["compare", "single_a", "single_b", "metadata", "suggest"]
+# FIX: Added "general" intent for casual/off-topic queries
+IntentType = Literal["compare", "single_a", "single_b", "metadata", "suggest", "general"]
 
 
 class QueryState(TypedDict):
@@ -260,8 +261,10 @@ def query_rewriter_node(state: QueryState) -> dict:
     """
     Rewrites the user query using HyDE so it reads like transcript text.
     This makes the embedding match stored chunks much more reliably.
+    Skipped for "general" intent to avoid mangling casual conversation.
     """
-    if not state.get("session_valid"):
+    # FIX: Skip HyDE rewriting for general/casual queries — no transcript to match
+    if not state.get("session_valid") or state.get("intent") == "general":
         return {"rewritten_query": state["user_query"]}
 
     query  = state["user_query"]
@@ -283,13 +286,14 @@ def query_rewriter_node(state: QueryState) -> dict:
 
 def intent_router_node(state: QueryState) -> dict:
     """
-    Classifies the query into one of five intents:
-    compare, single_a, single_b, metadata, or suggest.
+    Classifies the query into one of six intents:
+    compare, single_a, single_b, metadata, suggest, or general.
     Falls back to 'compare' if classification fails.
     """
     llm   = _get_llm_flash()
     query = state["user_query"]
 
+    # FIX: Added "general" intent for greetings and off-topic messages
     system_prompt = (
         "Classify the user's question about two videos (Video A and Video B) "
         "into exactly one of these intents:\n\n"
@@ -298,8 +302,10 @@ def intent_router_node(state: QueryState) -> dict:
         "  single_b → question only about Video B\n"
         "  metadata → factual question: creator name, follower count, views, "
         "             likes, comments, upload date, duration, engagement rate\n"
-        "  suggest  → asking for improvements, recommendations, suggestions for a video\n\n"
-        "Respond with ONLY a JSON object: {\"intent\": \"<one of the 5 above>\"}\n"
+        "  suggest  → asking for improvements, recommendations, suggestions for a video\n"
+        "  general  → greetings, small talk, or anything unrelated to video analysis "
+        "             (e.g. 'hello', 'how are you', 'what can you do', 'thanks')\n\n"
+        "Respond with ONLY a JSON object: {\"intent\": \"<one of the 6 above>\"}\n"
         "No explanation. No markdown. Just the JSON."
     )
 
@@ -315,7 +321,8 @@ def intent_router_node(state: QueryState) -> dict:
         parsed   = json.loads(raw)
         intent   = parsed.get("intent", "compare")
 
-        allowed = {"compare", "single_a", "single_b", "metadata", "suggest"}
+        # FIX: Added "general" to the allowed set
+        allowed = {"compare", "single_a", "single_b", "metadata", "suggest", "general"}
         if intent not in allowed:
             intent = "compare"
 
@@ -328,10 +335,17 @@ def intent_router_node(state: QueryState) -> dict:
 
 
 def route_by_intent(state: QueryState) -> str:
-    """Metadata queries go straight to Redis; everything else hits Pinecone."""
+    """
+    Metadata queries go straight to Redis.
+    General/casual queries go to a simple conversational handler.
+    Everything else hits Pinecone.
+    """
     intent = state.get("intent", "compare")
     if intent == "metadata":
         return "metadata_lookup_node"
+    # FIX: Route general intent away from Pinecone entirely
+    if intent == "general":
+        return "handle_general_node"
     return "retrieve_node"
 
 
@@ -358,6 +372,42 @@ def metadata_lookup_node(state: QueryState) -> dict:
     return {
         "retrieved_chunks": [metadata_chunk],
         "context_source":   "redis",
+    }
+
+
+# FIX: New node — handles greetings and off-topic messages without touching Pinecone
+def handle_general_node(state: QueryState) -> dict:
+    """
+    Responds conversationally to greetings, small talk, and off-topic messages.
+    Does NOT query Pinecone or render engagement metric tables.
+    """
+    query        = state["user_query"]
+    chat_history = state.get("chat_history", [])
+    llm          = _get_llm_pro()
+
+    system_prompt = (
+        "You are EngageX, a friendly AI assistant that helps content creators "
+        "analyze and compare video engagement metrics. "
+        "Respond warmly and naturally to casual conversation or off-topic questions. "
+        "Keep your reply brief (1–3 sentences). "
+        "Do NOT produce tables, metrics, or structured analysis. "
+        "If appropriate, gently remind the user what you can help with: "
+        "comparing videos, analyzing engagement, or suggesting improvements."
+    )
+
+    messages = [SystemMessage(content=system_prompt)]
+    messages.extend(_format_history_for_llm(chat_history))
+    messages.append(HumanMessage(content=query))
+
+    response = llm.invoke(messages)
+    response_text = response.content.strip()
+
+    print(f"[handle_general] Casual response generated ({len(response_text)} chars).")
+
+    return {
+        "response":        response_text,
+        "citations":       [],
+        "reranked_chunks": [],
     }
 
 
@@ -650,6 +700,8 @@ def build_query_graph():
     graph.add_node("query_rewriter_node",          query_rewriter_node)
     graph.add_node("intent_router_node",           intent_router_node)
     graph.add_node("metadata_lookup_node",         metadata_lookup_node)
+    # FIX: Register the new general handler node
+    graph.add_node("handle_general_node",          handle_general_node)
     graph.add_node("retrieve_node",                retrieve_node)
     graph.add_node("rerank_node",                  rerank_node)
     graph.add_node("stream_response_node",         stream_response_node)
@@ -661,7 +713,7 @@ def build_query_graph():
         "validate_session_node",
         route_after_validation,
         {
-            "query_rewriter_node":        "query_rewriter_node",
+            "query_rewriter_node":         "query_rewriter_node",
             "handle_invalid_session_node": "handle_invalid_session_node",
         },
     )
@@ -669,12 +721,14 @@ def build_query_graph():
     graph.add_edge("handle_invalid_session_node", END)
     graph.add_edge("query_rewriter_node", "intent_router_node")
 
+    # FIX: Added "handle_general_node" to the conditional routing map
     graph.add_conditional_edges(
         "intent_router_node",
         route_by_intent,
         {
             "metadata_lookup_node": "metadata_lookup_node",
             "retrieve_node":        "retrieve_node",
+            "handle_general_node":  "handle_general_node",  # FIX
         },
     )
 
@@ -682,6 +736,10 @@ def build_query_graph():
     graph.add_edge("retrieve_node",        "rerank_node")
     graph.add_edge("rerank_node",          "stream_response_node")
     graph.add_edge("stream_response_node", "update_memory_node")
+
+    # FIX: General responses skip Pinecone/rerank/stream but still save to memory
+    graph.add_edge("handle_general_node",  "update_memory_node")
+
     graph.add_edge("update_memory_node",   END)
 
     return graph.compile()
