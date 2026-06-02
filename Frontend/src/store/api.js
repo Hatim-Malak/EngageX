@@ -2,7 +2,7 @@ import axios from "axios";
 
 const API_BASE_URL = import.meta.env.MODE === "development"
   ? 'http://localhost:8080'
-  : "https://routinex-v2.onrender.com";
+  : "https://engagex-zuev.onrender.com";
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
